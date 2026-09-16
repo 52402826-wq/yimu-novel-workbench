@@ -143,8 +143,8 @@ export async function getWorkbenchData(projectId?: string): Promise<WorkbenchDat
   }
 
   const project = projects.find((item) => item.id === activeProjectId) ?? projects[0];
-  const sceneRows = project?.volumes.flatMap((volume) =>
-    volume.chapters.flatMap((chapter) => chapter.scenes)
+  const chapterRows = project?.volumes.flatMap((volume) =>
+    volume.chapters
   ) ?? [];
   const [entityRows, threadRows, libraryRows, relationRows, timelineRows] = await Promise.all([
     db
@@ -173,14 +173,14 @@ export async function getWorkbenchData(projectId?: string): Promise<WorkbenchDat
       .where(eq(timelineEvents.projectId, activeProjectId))
       .orderBy(asc(timelineEvents.eventTime), desc(timelineEvents.updatedAt)),
   ]);
-  const recentlyUpdated = [...sceneRows]
+  const recentlyUpdated = [...chapterRows]
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .slice(0, 5)
-    .map((scene) => ({
-      id: scene.id,
-      title: scene.title,
-      updatedAt: scene.updatedAt,
-      wordCount: scene.wordCount,
+    .map((chapter) => ({
+      id: chapter.id,
+      title: chapter.title,
+      updatedAt: chapter.updatedAt,
+      wordCount: chapter.wordCount,
     }));
 
   return {
@@ -193,12 +193,12 @@ export async function getWorkbenchData(projectId?: string): Promise<WorkbenchDat
     timelineEvents: timelineRows,
     aiSettings: await getAiSettings(),
     dashboard: {
-      totalWords: sceneRows.reduce((sum, scene) => sum + scene.wordCount, 0),
+      totalWords: chapterRows.reduce((sum, chapter) => sum + chapter.wordCount, 0),
       projectCount: projects.length,
       volumeCount: project?.volumes.length ?? 0,
       chapterCount: project?.volumes.reduce((sum, volume) => sum + volume.chapters.length, 0) ?? 0,
-      sceneCount: sceneRows.length,
-      unfinishedScenes: sceneRows.filter((scene) => scene.status !== "完成").length,
+      sceneCount: 0,
+      unfinishedScenes: chapterRows.filter((chapter) => chapter.status !== "完成").length,
       unresolvedThreads: threadRows.filter((thread) => thread.status !== "已回收" && thread.status !== "废弃").length,
       entityCount: entityRows.length,
       libraryCount: libraryRows.length,
@@ -517,6 +517,12 @@ export async function createProject(name: string) {
     id: createId(),
     volumeId: volume.id,
     title: "第一章",
+    summary: "",
+    storyTime: "",
+    contentJson: stringifyContent(emptyDocument),
+    contentText: "",
+    wordCount: 0,
+    status: "草稿",
     sortOrder: 1,
     createdAt: now,
     updatedAt: now,
@@ -524,7 +530,7 @@ export async function createProject(name: string) {
   const scene = {
     id: createId(),
     chapterId: chapter.id,
-    title: "开场",
+    title: `${chapter.title} · 底层场景`,
     summary: "",
     pov: "",
     goal: "",
@@ -545,7 +551,7 @@ export async function createProject(name: string) {
   await db.insert(chapters).values(chapter);
   await db.insert(scenes).values(scene);
 
-  return { project, volume, chapter, scene };
+  return { project, volume, chapter: { ...chapter, scenes: [scene] } };
 }
 
 export async function deleteProject(id: string) {
@@ -619,13 +625,38 @@ export async function createChapter(volumeId: string, title: string) {
     id: createId(),
     volumeId,
     title: title.trim(),
+    summary: "",
+    storyTime: "",
+    contentJson: stringifyContent(emptyDocument),
+    contentText: "",
+    wordCount: 0,
+    status: "草稿",
     sortOrder: nextSort,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const scene = {
+    id: createId(),
+    chapterId: chapter.id,
+    title: `${chapter.title} · 底层场景`,
+    summary: "",
+    pov: "",
+    goal: "",
+    conflict: "",
+    outcome: "",
+    storyTime: "",
+    contentJson: stringifyContent(emptyDocument),
+    contentText: "",
+    wordCount: 0,
+    sortOrder: 1,
+    status: "草稿",
     createdAt: now,
     updatedAt: now,
   };
 
   await db.insert(chapters).values(chapter);
-  return chapter;
+  await db.insert(scenes).values(scene);
+  return { ...chapter, scenes: [scene] };
 }
 
 export async function deleteChapter(id: string) {
@@ -644,6 +675,68 @@ export async function deleteChapter(id: string) {
 
   await db.delete(chapters).where(eq(chapters.id, id));
   return true;
+}
+
+export async function getChapter(chapterId: string) {
+  await initDatabase();
+  const db = getDb();
+
+  const [chapter] = await db.select().from(chapters).where(eq(chapters.id, chapterId)).limit(1);
+  return chapter ?? null;
+}
+
+export async function updateChapter(
+  chapterId: string,
+  input: {
+    title?: string;
+    summary?: string;
+    storyTime?: string;
+    status?: string;
+    contentJson?: string;
+    contentText?: string;
+  }
+) {
+  await initDatabase();
+  const db = getDb();
+
+  const now = new Date().toISOString();
+  const patch: Partial<Chapter> = { updatedAt: now };
+
+  if (typeof input.title === "string" && input.title.trim()) {
+    patch.title = input.title.trim();
+  }
+
+  for (const key of ["summary", "storyTime", "status"] as const) {
+    if (typeof input[key] === "string") {
+      patch[key] = input[key].trim();
+    }
+  }
+
+  if (typeof input.contentJson === "string") {
+    patch.contentJson = input.contentJson;
+  }
+
+  if (typeof input.contentText === "string") {
+    patch.contentText = input.contentText;
+    patch.wordCount = countWords(input.contentText);
+  }
+
+  await db.update(chapters).set(patch).where(eq(chapters.id, chapterId));
+  if (patch.title) {
+    const [baseScene] = await db
+      .select()
+      .from(scenes)
+      .where(eq(scenes.chapterId, chapterId))
+      .orderBy(asc(scenes.sortOrder))
+      .limit(1);
+    if (baseScene) {
+      await db
+        .update(scenes)
+        .set({ title: `${patch.title} · 底层场景`, updatedAt: now })
+        .where(eq(scenes.id, baseScene.id));
+    }
+  }
+  return getChapter(chapterId);
 }
 
 export async function createScene(chapterId: string, title: string) {
@@ -1286,21 +1379,20 @@ export async function searchAll(query: string, projectId?: string) {
 
   const pattern = `%${trimmed}%`;
 
-  const sceneResults = await db
+  const chapterResults = await db
     .select({
       kind: sql<string>`'正文'`,
-      id: scenes.id,
-      title: scenes.title,
-      subtitle: chapters.title,
-      excerpt: scenes.contentText,
-      updatedAt: scenes.updatedAt,
+      id: chapters.id,
+      title: chapters.title,
+      subtitle: volumes.title,
+      excerpt: chapters.contentText,
+      updatedAt: chapters.updatedAt,
     })
-    .from(scenes)
-    .innerJoin(chapters, eq(chapters.id, scenes.chapterId))
+    .from(chapters)
     .innerJoin(volumes, eq(volumes.id, chapters.volumeId))
     .innerJoin(projects, eq(projects.id, volumes.projectId))
-    .where(or(like(scenes.title, pattern), like(scenes.contentText, pattern)))
-    .orderBy(desc(scenes.updatedAt))
+    .where(or(like(chapters.title, pattern), like(chapters.contentText, pattern)))
+    .orderBy(desc(chapters.updatedAt))
     .limit(40);
   const [entityResults, threadResults, libraryResults] = await Promise.all([
     db
@@ -1344,7 +1436,7 @@ export async function searchAll(query: string, projectId?: string) {
       .limit(30),
   ]);
 
-  const allResults = [...sceneResults, ...entityResults, ...threadResults, ...libraryResults]
+  const allResults = [...chapterResults, ...entityResults, ...threadResults, ...libraryResults]
     .filter((result) => {
       if (!projectId || result.kind === "正文") {
         return true;

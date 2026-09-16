@@ -33,6 +33,12 @@ export interface ChapterNode {
   id: string;
   volumeId: string;
   title: string;
+  summary: string;
+  storyTime: string;
+  contentJson: string;
+  contentText: string;
+  wordCount: number;
+  status: string;
   sortOrder: number;
   createdAt: string;
   updatedAt: string;

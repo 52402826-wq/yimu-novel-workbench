@@ -5,7 +5,7 @@ import { runAiTask, type AiProvider, type AiTaskMode, type AiWritingAction } fro
 export const runtime = "nodejs";
 
 const supportedModes = ["默认", "创作", "分析", "快速"];
-const supportedActions = ["分析当前 Scene", "续写建议", "润色建议", "改写建议", "故事构建"];
+const supportedActions = ["分析当前章节", "分析当前 Scene", "续写建议", "润色建议", "改写建议", "故事构建", "创作对话"];
 
 export async function POST(request: Request) {
   try {

@@ -25,6 +25,12 @@ export const chapters = sqliteTable("chapters", {
     .notNull()
     .references(() => volumes.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
+  summary: text("summary").notNull().default(""),
+  storyTime: text("story_time").notNull().default(""),
+  contentJson: text("content_json").notNull(),
+  contentText: text("content_text").notNull().default(""),
+  wordCount: integer("word_count").notNull().default(0),
+  status: text("status").notNull().default("草稿"),
   sortOrder: integer("sort_order").notNull(),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),

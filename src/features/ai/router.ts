@@ -8,7 +8,7 @@ export type AiProvider =
 
 export type AiTaskMode = "默认" | "创作" | "分析" | "快速";
 
-export type AiWritingAction = "分析当前 Scene" | "续写建议" | "润色建议" | "改写建议" | "故事构建";
+export type AiWritingAction = "分析当前章节" | "分析当前 Scene" | "续写建议" | "润色建议" | "改写建议" | "故事构建" | "创作对话";
 
 export interface AiContextBundle {
   scene?: {
@@ -19,6 +19,21 @@ export interface AiContextBundle {
     outcome: string;
     contentText: string;
   };
+  chapter?: {
+    title: string;
+    summary: string;
+    storyTime: string;
+    status: string;
+    contentText: string;
+  };
+  referencedChapters?: Array<{
+    title: string;
+    summary: string;
+    storyTime: string;
+    status: string;
+    contentText: string;
+  }>;
+  chatHistory?: Array<{ role: "user" | "assistant"; content: string }>;
   entities?: Array<{ type: string; name: string; summary: string }>;
   threads?: Array<{ type: string; title: string; status: string; summary: string }>;
   library?: Array<{ type: string; title: string; content: string }>;
@@ -142,6 +157,10 @@ function maxTokensForRequest(request: AiRouterRequest) {
     return 3600;
   }
 
+  if (request.action === "创作对话") {
+    return 1200;
+  }
+
   return 1600;
 }
 
@@ -204,6 +223,37 @@ function chatCompletionsEndpoint(request: AiRouterRequest) {
 }
 
 function buildMessages(request: AiRouterRequest) {
+  if (request.action === "创作对话") {
+    const context = typeof request.context === "object" ? request.context : undefined;
+    const history = context?.chatHistory?.slice(-4) ?? [];
+    const referenceText = contextToText(request.context, Math.min(normalizeIntegerParam(request.maxContextChars, 3500, 1000, 50000), 3500));
+
+    return [
+      {
+        role: "system",
+        content:
+          "你是中文小说创作工作台里的创作对话助手。你要像作者的长期创作搭档一样，围绕用户引用的章节和最近对话继续讨论。回答要具体、可执行、能追问和展开，不要默认替换原文。输出使用中文。",
+      },
+      {
+        role: "user",
+        content: [
+          `工作模式：${request.mode}`,
+          "引用上下文：",
+          referenceText,
+          "请基于引用上下文和后续对话继续回答。若没有引用章节，就按普通创作讨论回答。",
+        ].join("\n\n"),
+      },
+      ...history.map((message) => ({
+        role: message.role,
+        content: message.content.slice(0, 1200),
+      })),
+      {
+        role: "user",
+        content: request.prompt?.trim() || "请继续。",
+      },
+    ];
+  }
+
   return [
     {
       role: "system",
@@ -237,9 +287,35 @@ function contextToText(context: AiRouterRequest["context"], maxContextChars: num
     return context;
   }
 
+  const chapter = context.chapter;
   const scene = context.scene;
+  const referencedChapters = context.referencedChapters?.slice(0, 1) ?? [];
   const lines = [
-    scene
+    referencedChapters.length
+      ? referencedChapters
+          .map((item, index) =>
+            [
+              `引用章节 ${index + 1}：${item.title}`,
+              item.summary ? `摘要：${item.summary}` : "",
+              item.storyTime ? `故事时间：${item.storyTime}` : "",
+              item.status ? `状态：${item.status}` : "",
+              item.contentText ? `正文：\n${item.contentText.slice(0, Math.floor(maxContextChars / referencedChapters.length))}` : "正文为空。",
+            ]
+              .filter(Boolean)
+              .join("\n")
+          )
+          .join("\n\n")
+      : chapter
+      ? [
+          `章节：${chapter.title}`,
+          chapter.summary ? `摘要：${chapter.summary}` : "",
+          chapter.storyTime ? `故事时间：${chapter.storyTime}` : "",
+          chapter.status ? `状态：${chapter.status}` : "",
+          chapter.contentText ? `正文：\n${chapter.contentText.slice(0, maxContextChars)}` : "正文为空。",
+        ]
+          .filter(Boolean)
+          .join("\n")
+      : scene
       ? [
           `Scene：${scene.title}`,
           scene.summary ? `摘要：${scene.summary}` : "",
@@ -250,7 +326,7 @@ function contextToText(context: AiRouterRequest["context"], maxContextChars: num
         ]
           .filter(Boolean)
           .join("\n")
-      : "未选择 Scene。",
+      : "未选择章节。",
     listBlock("相关世界条目", context.entities?.map((item) => `${item.type}：${item.name} ${item.summary}`)),
     listBlock(
       "相关叙事线索",

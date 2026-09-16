@@ -61,6 +61,12 @@ async function initializeDatabase() {
       id TEXT PRIMARY KEY,
       volume_id TEXT NOT NULL REFERENCES volumes(id) ON DELETE CASCADE,
       title TEXT NOT NULL,
+      summary TEXT NOT NULL DEFAULT '',
+      story_time TEXT NOT NULL DEFAULT '',
+      content_json TEXT NOT NULL DEFAULT '{"type":"doc","content":[{"type":"paragraph"}]}',
+      content_text TEXT NOT NULL DEFAULT '',
+      word_count INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT '草稿',
       sort_order INTEGER NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -205,6 +211,12 @@ async function initializeDatabase() {
   await addColumnIfMissing("ai_model_aliases", "top_p", "INTEGER NOT NULL DEFAULT 90");
   await addColumnIfMissing("ai_model_aliases", "max_tokens", "INTEGER NOT NULL DEFAULT 1600");
   await addColumnIfMissing("ai_model_aliases", "max_context_chars", "INTEGER NOT NULL DEFAULT 6000");
+  await addColumnIfMissing("chapters", "summary", "TEXT NOT NULL DEFAULT ''");
+  await addColumnIfMissing("chapters", "story_time", "TEXT NOT NULL DEFAULT ''");
+  await addColumnIfMissing("chapters", "content_json", "TEXT NOT NULL DEFAULT '{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\"}]}'");
+  await addColumnIfMissing("chapters", "content_text", "TEXT NOT NULL DEFAULT ''");
+  await addColumnIfMissing("chapters", "word_count", "INTEGER NOT NULL DEFAULT 0");
+  await addColumnIfMissing("chapters", "status", "TEXT NOT NULL DEFAULT '草稿'");
   await rawClient.execute(
     "CREATE INDEX IF NOT EXISTS idx_volumes_project ON volumes(project_id, sort_order)"
   );

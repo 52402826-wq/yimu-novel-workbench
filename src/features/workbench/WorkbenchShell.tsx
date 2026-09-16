@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { JSONContent } from "@tiptap/react";
 import clsx from "clsx";
 import {
@@ -12,15 +12,15 @@ import {
   FolderPlus,
   GitBranch,
   Home,
+  Info,
   KeyRound,
   Library,
   Link2,
   MapPin,
-  PanelLeftClose,
-  PanelLeftOpen,
   Plus,
   Save,
   Search,
+  SlidersHorizontal,
   Sparkles,
   Target,
   Trash2,
@@ -29,11 +29,12 @@ import {
 } from "lucide-react";
 import { stringifyContent } from "@/lib/content";
 import { ManuscriptEditor } from "./ManuscriptEditor";
-import type { ManuscriptSelectionAction } from "./ManuscriptEditor";
+import type { AnnotationColors, AnnotationKind, ManuscriptSelectionAction } from "./ManuscriptEditor";
 import type {
   AiModelAlias,
   AiProviderSetting,
   AiSettingsData,
+  ChapterNode,
   LibraryItem,
   NarrativeThread,
   ProjectNode,
@@ -45,8 +46,8 @@ import type {
 
 type SaveState = "已保存" | "保存中" | "有改动" | "保存失败";
 type ViewKey = "首页" | "正文" | "构建" | "故事" | "世界" | "线索" | "时间轴" | "资料" | "关系" | "导入" | "AI";
-type ManuscriptSideTab = "AI" | "关联";
-type AiAction = "分析当前 Scene" | "续写建议" | "润色建议" | "改写建议" | "故事构建";
+type ManuscriptSideTab = "AI" | "关联" | "场景";
+type AiAction = "分析当前章节" | "分析当前 Scene" | "续写建议" | "润色建议" | "改写建议" | "故事构建" | "创作对话";
 type AiMode = "默认" | "创作" | "分析" | "快速";
 type AiAliasParams = Pick<AiModelAlias, "temperature" | "topP" | "maxTokens" | "maxContextChars">;
 type AiAliasDraft = {
@@ -56,6 +57,14 @@ type AiAliasDraft = {
 type BuildMessage = {
   role: "你" | "AI";
   content: string;
+};
+type AiSuggestionCard = {
+  id: string;
+  chapterId: string;
+  action: "分析" | "润色" | "改写" | "续写";
+  originalText: string;
+  suggestion: string;
+  createdAt: string;
 };
 type BuildTab = "创意访谈" | "总纲生成" | "模块沉淀" | "章节细纲";
 type BuildHistoryItem = {
@@ -88,7 +97,7 @@ type ImportTarget = "auto" | "world" | "thread" | "library" | "skip";
 
 const entityTypes = ["人物", "地点", "势力", "组织", "物品", "规则", "能力", "事件", "术语"];
 const threadTypes = ["伏笔", "悬念", "任务", "秘密", "感情线", "冲突线"];
-const libraryTypes = ["资料", "大纲", "人物", "地点", "势力", "规则", "伏笔", "Scene 参考", "灵感", "研究资料", "摘录", "参考", "笔记"];
+const libraryTypes = ["资料", "大纲", "人物", "地点", "势力", "规则", "伏笔", "章节参考", "灵感", "研究资料", "摘录", "参考", "笔记"];
 const timelineTypes = ["前史", "正文", "尾声", "伏笔", "回收", "背景"];
 const importTargetOptions: Array<{ value: ImportTarget; label: string }> = [
   { value: "auto", label: "自动分流" },
@@ -97,7 +106,38 @@ const importTargetOptions: Array<{ value: ImportTarget; label: string }> = [
   { value: "library", label: "资料库" },
   { value: "skip", label: "暂不导入" },
 ];
+const chapterStatuses = ["草稿", "修订", "完成", "废稿"];
 const sceneStatuses = ["草稿", "修订", "完成", "废稿"];
+const editorFontFamilies = [
+  { label: "宋体", value: 'ui-serif, "Songti SC", "STSong", "Noto Serif CJK SC", Georgia, serif' },
+  { label: "黑体", value: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' },
+  { label: "楷体", value: '"Kaiti SC", "STKaiti", "KaiTi", serif' },
+  { label: "等宽", value: 'ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace' },
+];
+const editorTextColors = ["#1f1b16", "#000000", "#6b1d1d", "#16407a", "#17633a"];
+const editorBackgroundColors = ["#fffefa", "#fff0b8", "#d8f0dc", "#d8e8ff", "#ead8ff"];
+const workbenchBackgroundColors = ["#f7f5ef", "#f0e3c9", "#e3f0e2", "#e1ebf7", "#eee2f4"];
+const annotationColorOptions = ["#fff2a8", "#ffd6d6", "#d8f3dc", "#d7e7ff", "#eadcff"];
+const defaultAnnotationColors: AnnotationColors = {
+  伏笔: "#fff2a8",
+  时间轴: "#d7e7ff",
+  场景: "#d8f3dc",
+};
+const workbenchBackgroundStorageKey = "yimu.workbench.background";
+const manuscriptPreferencesStorageKey = "yimu.manuscript.displayPreferences";
+const layoutPreferencesStorageKey = "yimu.workbench.layout";
+const aiChatStoragePrefix = "yimu.aiChat";
+const defaultLayoutPreferences = {
+  leftPanelWidth: 330,
+  rightPanelWidth: 360,
+};
+const defaultManuscriptPreferences = {
+  editorFontSize: 16,
+  editorFontFamily: editorFontFamilies[0].value,
+  editorTextColor: editorTextColors[0],
+  editorBackgroundColor: editorBackgroundColors[0],
+  annotationColors: defaultAnnotationColors,
+};
 const threadStatuses = ["计划中", "已埋设", "推进中", "已回收", "废弃"];
 const aiProviderTypes = ["openai", "deepseek", "kimi", "claude", "gemini", "openai-compatible"];
 const aiAliasModes: AiMode[] = ["默认", "创作", "分析", "快速"];
@@ -150,34 +190,86 @@ function parseErrorMessage(text: string) {
   }
 }
 
-function firstScene(projects: ProjectNode[]) {
+function firstChapter(projects: ProjectNode[]) {
   for (const project of projects) {
     for (const volume of project.volumes) {
-      for (const chapter of volume.chapters) {
-        if (chapter.scenes[0]) {
-          return chapter.scenes[0];
-        }
+      if (volume.chapters[0]) {
+        return volume.chapters[0];
       }
     }
   }
   return null;
 }
 
-function findScene(projects: ProjectNode[], sceneId: string | null) {
-  if (!sceneId) {
+function findChapter(projects: ProjectNode[], chapterId: string | null) {
+  if (!chapterId) {
     return null;
   }
   for (const project of projects) {
     for (const volume of project.volumes) {
-      for (const chapter of volume.chapters) {
-        const scene = chapter.scenes.find((item) => item.id === sceneId);
-        if (scene) {
-          return scene;
-        }
+      const chapter = volume.chapters.find((item) => item.id === chapterId);
+      if (chapter) {
+        return chapter;
       }
     }
   }
   return null;
+}
+
+function allChapters(project: ProjectNode | null) {
+  return project?.volumes.flatMap((volume) => volume.chapters) ?? [];
+}
+
+function mentionedChapters(prompt: string, chapters: ChapterNode[]) {
+  const normalizedPrompt = prompt.trim();
+  if (!normalizedPrompt) {
+    return [];
+  }
+
+  return chapters
+    .filter((chapter) => normalizedPrompt.includes(`@${chapter.title}`))
+    .sort((a, b) => b.title.length - a.title.length)
+    .slice(0, 1);
+}
+
+function aiChatStorageKey(projectId: string | null) {
+  return projectId ? `${aiChatStoragePrefix}.${projectId}` : "";
+}
+
+function parseSavedAiMessages(value: string | null): BuildMessage[] {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value) as BuildMessage[];
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed
+      .filter((message) => (message.role === "你" || message.role === "AI") && typeof message.content === "string")
+      .slice(-30);
+  } catch {
+    return [];
+  }
+}
+
+function displayAiMessage(message: BuildMessage) {
+  if (message.role === "你") {
+    return message.content;
+  }
+
+  const content = message.content
+    .trimStart()
+    .replace(/^(RAY|Ray)\s*[,，:：-]?\s*/u, "");
+  return `RAY，${content}`;
+}
+
+function clampPanelWidth(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+  return Math.max(min, Math.min(max, Math.round(value)));
 }
 
 function excerpt(text: string, query: string) {
@@ -211,9 +303,9 @@ function confirmDelete(message: string) {
   return window.confirm(message);
 }
 
-function replaceSceneInWorkbench(
+function replaceChapterInWorkbench(
   data: WorkbenchData | null,
-  scene: SceneNode
+  nextChapter: ChapterNode
 ): WorkbenchData | null {
   if (!data) {
     return data;
@@ -226,10 +318,7 @@ function replaceSceneInWorkbench(
       volumes: project.volumes.map((volume) => ({
         ...volume,
         chapters: volume.chapters.map((chapter) => ({
-          ...chapter,
-          scenes: chapter.scenes.map((item) =>
-            item.id === scene.id ? { ...scene, beats: item.beats } : item
-          ),
+          ...(chapter.id === nextChapter.id ? { ...nextChapter, scenes: chapter.scenes } : chapter),
         })),
       })),
     })),
@@ -243,11 +332,7 @@ function replaceSceneInWorkbench(
               volumeSum +
               volume.chapters.reduce(
                 (chapterSum, chapter) =>
-                  chapterSum +
-                  chapter.scenes.reduce(
-                    (sceneSum, item) => sceneSum + (item.id === scene.id ? scene.wordCount : item.wordCount),
-                    0
-                  ),
+                  chapterSum + (chapter.id === nextChapter.id ? nextChapter.wordCount : chapter.wordCount),
                 0
               ),
             0
@@ -255,11 +340,35 @@ function replaceSceneInWorkbench(
         0
       ),
       recentlyUpdated: data.dashboard.recentlyUpdated.map((item) =>
-        item.id === scene.id
-          ? { id: scene.id, title: scene.title, updatedAt: scene.updatedAt, wordCount: scene.wordCount }
+        item.id === nextChapter.id
+          ? { id: nextChapter.id, title: nextChapter.title, updatedAt: nextChapter.updatedAt, wordCount: nextChapter.wordCount }
           : item
       ),
     },
+  };
+}
+
+function replaceSceneInWorkbench(data: WorkbenchData | null, nextScene: SceneNode): WorkbenchData | null {
+  if (!data) {
+    return data;
+  }
+
+  return {
+    ...data,
+    projects: data.projects.map((project) => ({
+      ...project,
+      volumes: project.volumes.map((volume) => ({
+        ...volume,
+        chapters: volume.chapters.map((chapter) =>
+          chapter.id === nextScene.chapterId
+            ? {
+                ...chapter,
+                scenes: chapter.scenes.map((scene) => (scene.id === nextScene.id ? nextScene : scene)),
+              }
+            : chapter
+        ),
+      })),
+    })),
   };
 }
 
@@ -267,8 +376,8 @@ export function WorkbenchShell() {
   const [view, setView] = useState<ViewKey>("首页");
   const [data, setData] = useState<WorkbenchData | null>(null);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
-  const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
-  const [selectedScene, setSelectedScene] = useState<SceneNode | null>(null);
+  const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
+  const [selectedChapter, setSelectedChapter] = useState<ChapterNode | null>(null);
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [selectedLibraryId, setSelectedLibraryId] = useState<string | null>(null);
@@ -276,9 +385,17 @@ export function WorkbenchShell() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [message, setMessage] = useState("");
-  const [aiResult, setAiResult] = useState("");
+  const [workbenchBackgroundColor, setWorkbenchBackgroundColor] = useState(workbenchBackgroundColors[0]);
+  const [workbenchBackgroundLoaded, setWorkbenchBackgroundLoaded] = useState(false);
+  const [leftPanelWidth, setLeftPanelWidth] = useState(defaultLayoutPreferences.leftPanelWidth);
+  const [rightPanelWidth, setRightPanelWidth] = useState(defaultLayoutPreferences.rightPanelWidth);
+  const [layoutLoaded, setLayoutLoaded] = useState(false);
+  const [draggingPanel, setDraggingPanel] = useState<"right" | null>(null);
   const [aiRunning, setAiRunning] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
+  const [aiMessages, setAiMessages] = useState<BuildMessage[]>([]);
+  const [aiMessagesLoadedFor, setAiMessagesLoadedFor] = useState("");
+  const [aiSuggestions, setAiSuggestions] = useState<AiSuggestionCard[]>([]);
   const [buildInput, setBuildInput] = useState("");
   const [buildFocus, setBuildFocus] = useState("完整新书");
   const [buildMessages, setBuildMessages] = useState<BuildMessage[]>([]);
@@ -287,10 +404,90 @@ export function WorkbenchShell() {
   const [buildTab, setBuildTab] = useState<BuildTab>("创意访谈");
   const [buildHistory, setBuildHistory] = useState<BuildHistoryItem[]>([]);
   const [buildRunning, setBuildRunning] = useState(false);
-  const [navCollapsed, setNavCollapsed] = useState(false);
   const [manuscriptSideTab, setManuscriptSideTab] = useState<ManuscriptSideTab>("AI");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const selectedSceneRef = useRef<SceneNode | null>(null);
+  const selectedChapterRef = useRef<ChapterNode | null>(null);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem(workbenchBackgroundStorageKey);
+    if (saved && workbenchBackgroundColors.includes(saved)) {
+      setWorkbenchBackgroundColor(saved);
+    }
+    setWorkbenchBackgroundLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!workbenchBackgroundLoaded) {
+      return;
+    }
+    window.localStorage.setItem(workbenchBackgroundStorageKey, workbenchBackgroundColor);
+  }, [workbenchBackgroundColor, workbenchBackgroundLoaded]);
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(layoutPreferencesStorageKey);
+      if (!saved) {
+        return;
+      }
+      const parsed = JSON.parse(saved) as Partial<typeof defaultLayoutPreferences>;
+      if (typeof parsed.leftPanelWidth === "number") {
+        setLeftPanelWidth(clampPanelWidth(parsed.leftPanelWidth, 240, 520));
+      }
+      if (typeof parsed.rightPanelWidth === "number") {
+        setRightPanelWidth(clampPanelWidth(parsed.rightPanelWidth, 280, 560));
+      }
+    } catch {
+      window.localStorage.removeItem(layoutPreferencesStorageKey);
+    } finally {
+      setLayoutLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!layoutLoaded) {
+      return;
+    }
+    window.localStorage.setItem(layoutPreferencesStorageKey, JSON.stringify({ leftPanelWidth, rightPanelWidth }));
+  }, [layoutLoaded, leftPanelWidth, rightPanelWidth]);
+
+  useEffect(() => {
+    if (draggingPanel !== "right") {
+      return;
+    }
+
+    const handleMove = (event: MouseEvent) => {
+      setRightPanelWidth(clampPanelWidth(window.innerWidth - event.clientX, 280, 560));
+    };
+    const stopDragging = () => setDraggingPanel(null);
+
+    document.body.classList.add("is-resizing-panel");
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", stopDragging);
+    return () => {
+      document.body.classList.remove("is-resizing-panel");
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", stopDragging);
+    };
+  }, [draggingPanel]);
+
+  useEffect(() => {
+    const key = aiChatStorageKey(activeProjectId);
+    if (!key) {
+      setAiMessages([]);
+      setAiMessagesLoadedFor("");
+      return;
+    }
+    setAiMessages(parseSavedAiMessages(window.localStorage.getItem(key)));
+    setAiMessagesLoadedFor(key);
+  }, [activeProjectId]);
+
+  useEffect(() => {
+    const key = aiChatStorageKey(activeProjectId);
+    if (!key || aiMessagesLoadedFor !== key) {
+      return;
+    }
+    window.localStorage.setItem(key, JSON.stringify(aiMessages.slice(-30)));
+  }, [activeProjectId, aiMessages, aiMessagesLoadedFor]);
 
   const projects = data?.projects ?? [];
   const activeProject = projects.find((project) => project.id === activeProjectId) ?? projects[0] ?? null;
@@ -302,22 +499,24 @@ export function WorkbenchShell() {
     null;
   const selectedLibrary =
     data?.libraryItems.find((item) => item.id === selectedLibraryId) ?? data?.libraryItems[0] ?? null;
+  const selectedBaseScene = selectedChapter?.scenes[0] ?? null;
+  const activeProjectChapters = useMemo(() => allChapters(activeProject), [activeProject]);
 
   const relatedEntities = useMemo(() => {
-    if (!selectedScene) {
+    if (!selectedChapter) {
       return [];
     }
-    const text = [selectedScene.title, selectedScene.summary, selectedScene.contentText].join("\n");
+    const text = [selectedChapter.title, selectedChapter.summary, selectedChapter.contentText].join("\n");
     return (data?.worldEntities ?? []).filter((entity) => text.includes(entity.name)).slice(0, 8);
-  }, [data?.worldEntities, selectedScene]);
+  }, [data?.worldEntities, selectedChapter]);
 
   const relatedThreads = useMemo(() => {
-    if (!selectedScene) {
+    if (!selectedChapter) {
       return [];
     }
-    const text = [selectedScene.title, selectedScene.summary, selectedScene.contentText].join("\n");
+    const text = [selectedChapter.title, selectedChapter.summary, selectedChapter.contentText].join("\n");
     return (data?.narrativeThreads ?? []).filter((thread) => text.includes(thread.title)).slice(0, 8);
-  }, [data?.narrativeThreads, selectedScene]);
+  }, [data?.narrativeThreads, selectedChapter]);
 
   const loadWorkbench = useCallback(
     async (projectId = activeProjectId ?? undefined) => {
@@ -326,11 +525,11 @@ export function WorkbenchShell() {
       setData(nextData);
       setActiveProjectId(nextData.activeProjectId);
 
-      setSelectedSceneId((current) => {
-        if (findScene(nextData.projects, current)) {
+      setSelectedChapterId((current) => {
+        if (findChapter(nextData.projects, current)) {
           return current;
         }
-        return firstScene(nextData.projects)?.id ?? null;
+        return firstChapter(nextData.projects)?.id ?? null;
       });
 
       setSelectedEntityId((current) =>
@@ -351,22 +550,22 @@ export function WorkbenchShell() {
   }, [loadWorkbench]);
 
   useEffect(() => {
-    if (!selectedSceneId) {
-      setSelectedScene(null);
-      selectedSceneRef.current = null;
+    if (!selectedChapterId) {
+      setSelectedChapter(null);
+      selectedChapterRef.current = null;
       return;
     }
 
-    fetchJson<{ scene: Omit<SceneNode, "beats"> }>(`/api/scenes/${selectedSceneId}`)
+    fetchJson<{ chapter: ChapterNode }>(`/api/chapters/${selectedChapterId}`)
       .then((result) => {
-        const treeScene = findScene(projects, selectedSceneId);
-        const nextScene = { ...result.scene, beats: treeScene?.beats ?? [] };
-        selectedSceneRef.current = nextScene;
-        setSelectedScene(nextScene);
+        const treeChapter = findChapter(projects, selectedChapterId);
+        const nextChapter = { ...result.chapter, scenes: treeChapter?.scenes ?? [] };
+        selectedChapterRef.current = nextChapter;
+        setSelectedChapter(nextChapter);
         setSaveState("已保存");
       })
       .catch((error) => setMessage(error.message));
-  }, [projects, selectedSceneId]);
+  }, [projects, selectedChapterId]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -392,11 +591,11 @@ export function WorkbenchShell() {
       return;
     }
 
-    const result = await fetchJson<{ scene: SceneNode }>("/api/projects", {
+    const result = await fetchJson<{ chapter: ChapterNode }>("/api/projects", {
       method: "POST",
       body: JSON.stringify({ name }),
     });
-    setSelectedSceneId(result.scene.id);
+    setSelectedChapterId(result.chapter.id);
     await loadWorkbench();
     setMessage("已新建小说。");
   };
@@ -421,41 +620,13 @@ export function WorkbenchShell() {
     if (!title?.trim()) {
       return;
     }
-    await fetchJson("/api/chapters", {
+    const result = await fetchJson<{ chapter: ChapterNode }>("/api/chapters", {
       method: "POST",
       body: JSON.stringify({ volumeId, title }),
     });
-    await loadWorkbench(activeProjectId ?? undefined);
-  };
-
-  const addScene = async (chapterId: string, count: number) => {
-    const title = window.prompt("Scene 名称", `Scene ${count + 1}`);
-    if (!title?.trim()) {
-      return;
-    }
-    const result = await fetchJson<{ scene: SceneNode }>("/api/scenes", {
-      method: "POST",
-      body: JSON.stringify({ chapterId, title }),
-    });
-    setSelectedSceneId(result.scene.id);
+    setSelectedChapterId(result.chapter.id);
     setView("正文");
     await loadWorkbench(activeProjectId ?? undefined);
-  };
-
-  const addBeat = async () => {
-    if (!selectedScene) {
-      return;
-    }
-    const title = window.prompt("Beat 名称", `Beat ${selectedScene.beats.length + 1}`);
-    if (!title?.trim()) {
-      return;
-    }
-    await fetchJson("/api/beats", {
-      method: "POST",
-      body: JSON.stringify({ sceneId: selectedScene.id, title }),
-    });
-    await loadWorkbench(activeProjectId ?? undefined);
-    setMessage("已添加 Beat。");
   };
 
   const createEntity = async () => {
@@ -512,8 +683,14 @@ export function WorkbenchShell() {
     await loadWorkbench(activeProject.id);
   };
 
-  const createSceneRelation = async (targetType: "世界实体" | "叙事线索" | "资料", targetId: string, relationType: string) => {
-    if (!activeProject || !selectedScene || !targetId) {
+  const createSceneRelation = async (
+    targetType: "世界实体" | "叙事线索" | "资料",
+    targetId: string,
+    relationType: string,
+    sourceSceneId = selectedBaseScene?.id ?? ""
+  ) => {
+    if (!activeProject || !sourceSceneId || !targetId) {
+      setMessage("当前章节还没有章节结构，请重新打开工作台或新建章节后再试。");
       return;
     }
     await fetchJson("/api/relations", {
@@ -521,14 +698,44 @@ export function WorkbenchShell() {
       body: JSON.stringify({
         projectId: activeProject.id,
         sourceType: "Scene",
-        sourceId: selectedScene.id,
+        sourceId: sourceSceneId,
         targetType,
         targetId,
         relationType,
       }),
     });
     await loadWorkbench(activeProject.id);
-    setMessage("已更新当前 Scene 的关联。");
+    setMessage(sourceSceneId === selectedBaseScene?.id ? "已更新当前章节的结构关联。" : "已更新场景片段关联。");
+  };
+
+  const prepareSceneFragmentAi = (scene: SceneNode) => {
+    const text = scene.contentText || scene.summary;
+    setAiPrompt(
+      `请分析下面这个场景片段，重点看场景目的、冲突强度、信息增量、人物状态、节奏和结尾钩子。只给建议，不要替换原文。\n\n场景：${scene.title}\n\n${text}`
+    );
+    setManuscriptSideTab("AI");
+    setMessage("已把场景片段放入创作对话输入框。确认后点击“发送”。");
+  };
+
+  const createTimelineEventFromSceneFragment = async (scene: SceneNode) => {
+    if (!activeProject) {
+      setMessage("请先选择一本小说。");
+      return;
+    }
+    await fetchJson("/api/timeline-events", {
+      method: "POST",
+      body: JSON.stringify({
+        projectId: activeProject.id,
+        title: scene.title,
+        eventTime: scene.storyTime || selectedBaseScene?.storyTime || selectedChapter?.storyTime || "",
+        type: "正文",
+        sceneId: scene.id,
+        summary: scene.summary || scene.contentText,
+      }),
+    });
+    await loadWorkbench(activeProject.id);
+    setView("时间轴");
+    setMessage("已用场景片段创建时间轴事件。");
   };
 
   const createTimelineEvent = async () => {
@@ -536,7 +743,7 @@ export function WorkbenchShell() {
       setMessage("请先创建或选择一本小说。");
       return;
     }
-    const title = window.prompt("时间轴事件标题", selectedScene?.title ?? "新事件");
+    const title = window.prompt("时间轴事件标题", selectedChapter?.title ?? "新事件");
     if (!title?.trim()) {
       return;
     }
@@ -545,10 +752,10 @@ export function WorkbenchShell() {
       body: JSON.stringify({
         projectId: activeProject.id,
         title,
-        eventTime: selectedScene?.storyTime ?? "",
-        type: selectedScene ? "正文" : "背景",
-        sceneId: selectedScene?.id ?? "",
-        summary: selectedScene?.summary ?? "",
+        eventTime: selectedBaseScene?.storyTime ?? selectedChapter?.storyTime ?? "",
+        type: selectedChapter ? "正文" : "背景",
+        sceneId: selectedBaseScene?.id ?? "",
+        summary: selectedBaseScene?.summary ?? selectedChapter?.summary ?? "",
       }),
     });
     await loadWorkbench(activeProject.id);
@@ -562,17 +769,8 @@ export function WorkbenchShell() {
       return;
     }
 
-    if (action === "分析" || action === "润色" || action === "改写") {
-      const prompt =
-        action === "分析"
-          ? `请分析下面这段选中文字，重点看节奏、信息量、人物状态和是否偏离当前 Scene 目标。只给建议，不要改写原文。\n\n${selectedText}`
-          : action === "润色"
-            ? `请给下面这段选中文字提供润色建议。只输出建议和可参考版本，不要替换原文。\n\n${selectedText}`
-            : `请改写下面这段选中文字。输出格式：先给 1 个推荐改写版，再给 2-3 条改写思路。只作为建议，不要替换原文。\n\n${selectedText}`;
-      setAiPrompt(prompt);
-      setAiResult("");
-      setManuscriptSideTab("AI");
-      setMessage("已把选中文字放入 AI 输入框。确认内容后点击对应按钮发送。");
+    if (action === "分析" || action === "润色" || action === "改写" || action === "续写") {
+      await createAiSuggestionFromSelection(action, selectedText);
       return;
     }
 
@@ -583,12 +781,88 @@ export function WorkbenchShell() {
 
     if (action === "伏笔") {
       await createForeshadowingFromSelection(selectedText);
+      return;
+    }
+
+    if (action === "场景") {
+      await createSceneMarkerFromSelection(selectedText);
+    }
+  };
+
+  const createAiSuggestionFromSelection = async (
+    action: AiSuggestionCard["action"],
+    selectedText: string
+  ) => {
+    if (!selectedChapter) {
+      setMessage("请先选择一个章节。");
+      return;
+    }
+
+    const aiAction = action === "分析" ? "分析当前 Scene" : action === "润色" ? "润色建议" : action === "改写" ? "改写建议" : "续写建议";
+    const mode: AiMode = action === "分析" ? "分析" : "创作";
+    const prompt =
+      action === "分析"
+        ? "请分析这段选中文字，重点看节奏、信息量、人物状态、场景目的和冲突强度。只给建议，不要改写原文。"
+        : action === "润色"
+          ? "请给这段选中文字提供润色建议。只输出建议和可参考版本，不要替换原文。"
+          : action === "改写"
+            ? "请改写这段选中文字。输出格式：先给 1 个推荐改写版，再给 2-3 条改写思路。只作为建议，不要替换原文。"
+            : "请基于这段选中文字提供续写建议。输出 2-3 个可选方向和一个推荐续写片段，只作为建议，不要替换原文。";
+
+    setAiRunning(true);
+    setMessage(`正在生成${action}建议...`);
+
+    try {
+      const result = await fetchJson<{
+        result: {
+          text: string;
+          providerName: string;
+          modelName: string;
+          mode: string;
+        };
+      }>("/api/ai/run", {
+        method: "POST",
+        body: JSON.stringify({
+          action: aiAction,
+          mode,
+          providerId: null,
+          modelName: "",
+          prompt,
+          context: {
+            scene: {
+              title: "选中片段",
+              summary: selectedText,
+              goal: "",
+              conflict: "",
+              outcome: "",
+              contentText: selectedText,
+            },
+          },
+        }),
+      });
+
+      setAiSuggestions((current) => [
+        {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          chapterId: selectedChapter.id,
+          action,
+          originalText: selectedText,
+          suggestion: result.result.text,
+          createdAt: new Date().toISOString(),
+        },
+        ...current,
+      ]);
+      setMessage(`已生成${action}建议：${result.result.providerName} / ${result.result.modelName}`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "AI 请求失败。");
+    } finally {
+      setAiRunning(false);
     }
   };
 
   const createTimelineEventFromSelection = async (text: string) => {
-    if (!activeProject || !selectedScene) {
-      setMessage("请先选择小说和 Scene。");
+    if (!activeProject || !selectedChapter) {
+      setMessage("请先选择小说和章节。");
       return;
     }
     await fetchJson("/api/timeline-events", {
@@ -596,9 +870,9 @@ export function WorkbenchShell() {
       body: JSON.stringify({
         projectId: activeProject.id,
         title: selectedTextTitle(text),
-        eventTime: selectedScene.storyTime,
+        eventTime: selectedBaseScene?.storyTime ?? selectedChapter.storyTime,
         type: "正文",
-        sceneId: selectedScene.id,
+        sceneId: selectedBaseScene?.id ?? "",
         summary: text,
       }),
     });
@@ -625,6 +899,32 @@ export function WorkbenchShell() {
     await loadWorkbench(activeProject.id);
     setView("线索");
     setMessage("已用选中文字创建伏笔线索。");
+  };
+
+  const createSceneMarkerFromSelection = async (text: string) => {
+    if (!activeProject || !selectedChapter) {
+      setMessage("请先选择小说和章节。");
+      return;
+    }
+    const result = await fetchJson<{ scene: SceneNode }>("/api/scenes", {
+      method: "POST",
+      body: JSON.stringify({
+        chapterId: selectedChapter.id,
+        title: selectedTextTitle(text),
+      }),
+    });
+    await fetchJson<{ scene: SceneNode }>(`/api/scenes/${result.scene.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        summary: text,
+        contentText: text,
+        storyTime: selectedBaseScene?.storyTime ?? selectedChapter.storyTime,
+        status: "草稿",
+      }),
+    });
+    await loadWorkbench(activeProject.id);
+    setManuscriptSideTab("场景");
+    setMessage("已用选中文字划分场景片段。");
   };
 
   const updateTimelineEventById = async (id: string, patch: Partial<WorkbenchData["timelineEvents"][number]>) => {
@@ -663,12 +963,12 @@ export function WorkbenchShell() {
   const deleteProjectById = async (project: ProjectNode) => {
     const deleted = await deleteByUrl(
       `/api/projects/${project.id}`,
-      `确定删除小说《${project.name}》吗？这会删除它的卷、章节、Scene、世界、线索、资料和关系。`,
+      `确定删除小说《${project.name}》吗？这会删除它的卷、章节、世界、线索、资料和关系。`,
       "已删除小说。"
     );
     if (deleted) {
       setActiveProjectId(null);
-      setSelectedSceneId(null);
+      setSelectedChapterId(null);
       await loadWorkbench(undefined);
       setView("首页");
     }
@@ -677,7 +977,7 @@ export function WorkbenchShell() {
   const deleteVolumeById = async (volumeId: string, title: string) => {
     const deleted = await deleteByUrl(
       `/api/volumes/${volumeId}`,
-      `确定删除「${title}」吗？这一卷下的章节、Scene 和 Beat 会一起删除。`,
+      `确定删除「${title}」吗？这一卷下的章节会一起删除。`,
       "已删除卷。"
     );
     if (deleted) {
@@ -688,7 +988,7 @@ export function WorkbenchShell() {
   const deleteChapterById = async (chapterId: string, title: string) => {
     const deleted = await deleteByUrl(
       `/api/chapters/${chapterId}`,
-      `确定删除「${title}」吗？这一章下的 Scene 和 Beat 会一起删除。`,
+      `确定删除「${title}」吗？这一章的正文会一起删除。`,
       "已删除章节。"
     );
     if (deleted) {
@@ -703,12 +1003,12 @@ export function WorkbenchShell() {
     }
     const deleted = await deleteByUrl(
       `/api/scenes/${sceneId}`,
-      `确定删除 Scene「${title}」吗？正文、Beat 和相关关系会一起删除。`,
-      "已删除 Scene。"
+      `确定删除场景片段「${title}」吗？相关 Beat 和关系会一起删除。`,
+      "已删除场景片段。"
     );
     if (deleted) {
-      if (selectedSceneId === sceneId) {
-        setSelectedSceneId(null);
+      if (selectedChapterId === sceneId) {
+        setSelectedChapterId(null);
       }
       await loadWorkbench(activeProjectId ?? undefined);
     }
@@ -764,28 +1064,25 @@ export function WorkbenchShell() {
     }
   };
 
-  const saveScene = useCallback(async (scene: SceneNode) => {
+  const saveChapter = useCallback(async (chapter: ChapterNode) => {
     setSaveState("保存中");
     try {
-      const result = await fetchJson<{ scene: Omit<SceneNode, "beats"> }>(`/api/scenes/${scene.id}`, {
+      const result = await fetchJson<{ chapter: ChapterNode }>(`/api/chapters/${chapter.id}`, {
         method: "PATCH",
         body: JSON.stringify({
-          title: scene.title,
-          summary: scene.summary,
-          pov: scene.pov,
-          goal: scene.goal,
-          conflict: scene.conflict,
-          outcome: scene.outcome,
-          storyTime: scene.storyTime,
-          status: scene.status,
-          contentJson: scene.contentJson,
-          contentText: scene.contentText,
+          title: chapter.title,
+          summary: chapter.summary,
+          storyTime: chapter.storyTime,
+          status: chapter.status,
+          contentJson: chapter.contentJson,
+          contentText: chapter.contentText,
+          wordCount: chapter.wordCount,
         }),
       });
-      const nextScene = { ...result.scene, beats: scene.beats };
-      selectedSceneRef.current = nextScene;
-      setSelectedScene(nextScene);
-      setData((current) => replaceSceneInWorkbench(current, nextScene));
+      const nextChapter = { ...result.chapter, scenes: chapter.scenes };
+      selectedChapterRef.current = nextChapter;
+      setSelectedChapter(nextChapter);
+      setData((current) => replaceChapterInWorkbench(current, nextChapter));
       setSaveState("已保存");
     } catch (error) {
       setSaveState("保存失败");
@@ -793,44 +1090,100 @@ export function WorkbenchShell() {
     }
   }, []);
 
-  const scheduleSave = (scene: SceneNode) => {
+  const scheduleSave = (chapter: ChapterNode) => {
     setSaveState("有改动");
     if (saveTimer.current) {
       clearTimeout(saveTimer.current);
     }
     saveTimer.current = setTimeout(() => {
-      saveScene(scene);
+      saveChapter(chapter);
     }, 850);
   };
 
-  const updateScene = (patch: Partial<SceneNode>) => {
-    if (!selectedScene) {
+  const updateChapter = (patch: Partial<ChapterNode>) => {
+    if (!selectedChapter) {
       return;
     }
-    const nextScene = { ...selectedScene, ...patch };
-    selectedSceneRef.current = nextScene;
-    setSelectedScene(nextScene);
-    scheduleSave(nextScene);
+    const nextChapter = { ...selectedChapter, ...patch };
+    selectedChapterRef.current = nextChapter;
+    setSelectedChapter(nextChapter);
+    scheduleSave(nextChapter);
+  };
+
+  const updateBaseScene = async (patch: Partial<SceneNode>) => {
+    if (!selectedChapter || !selectedBaseScene) {
+      return;
+    }
+    const nextScene = { ...selectedBaseScene, ...patch, updatedAt: new Date().toISOString() };
+    const nextChapter = {
+      ...selectedChapter,
+      scenes: selectedChapter.scenes.map((scene) => (scene.id === nextScene.id ? nextScene : scene)),
+    };
+    selectedChapterRef.current = nextChapter;
+    setSelectedChapter(nextChapter);
+    setData((current) => replaceSceneInWorkbench(current, nextScene));
+
+    try {
+      const result = await fetchJson<{ scene: SceneNode }>(`/api/scenes/${selectedBaseScene.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          title: nextScene.title,
+          summary: nextScene.summary,
+          pov: nextScene.pov,
+          goal: nextScene.goal,
+          conflict: nextScene.conflict,
+          outcome: nextScene.outcome,
+          storyTime: nextScene.storyTime,
+          status: nextScene.status,
+        }),
+      });
+      setData((current) => replaceSceneInWorkbench(current, result.scene));
+      setSelectedChapter((current) =>
+        current
+          ? {
+              ...current,
+              scenes: current.scenes.map((scene) => (scene.id === result.scene.id ? result.scene : scene)),
+            }
+          : current
+      );
+      setMessage("章节结构已保存。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "章节结构保存失败。");
+    }
   };
 
   const updateContent = (content: JSONContent, text: string) => {
-    updateScene({
+    updateChapter({
       contentJson: stringifyContent(content),
       contentText: text,
       wordCount: countText(text),
     });
   };
 
-  const saveCurrentSceneNow = () => {
-    const scene = selectedSceneRef.current;
-    if (!scene || saveState === "保存中") {
+  const saveCurrentChapterNow = () => {
+    const chapter = selectedChapterRef.current;
+    if (!chapter || saveState === "保存中") {
       return;
     }
     if (saveTimer.current) {
       clearTimeout(saveTimer.current);
       saveTimer.current = null;
     }
-    void saveScene(scene);
+    void saveChapter(chapter);
+  };
+
+  const deleteAiSuggestion = (id: string) => {
+    setAiSuggestions((current) => current.filter((item) => item.id !== id));
+  };
+
+  const copyAiSuggestion = async (suggestion: AiSuggestionCard) => {
+    const text = `【${suggestion.action}建议】\n\n原文：\n${suggestion.originalText}\n\n建议：\n${suggestion.suggestion}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setMessage("已复制 AI 建议。");
+    } catch {
+      setMessage("复制失败，请手动选中卡片内容复制。");
+    }
   };
 
   const updateEntity = async (patch: Partial<WorldEntity>) => {
@@ -952,14 +1305,28 @@ export function WorkbenchShell() {
     providerId: string | null,
     modelName: string
   ) => {
-    if (!selectedScene) {
-      setMessage("请先选择一个 Scene。");
+    const question = prompt.trim();
+    if (!question) {
       return;
     }
 
+    if (!activeProject) {
+      setMessage("请先创建或选择一本小说。");
+      return;
+    }
+
+    const references = mentionedChapters(question, activeProjectChapters);
+    if (question.includes("@") && !references.length) {
+      const message = "没有找到这个章节。请从下拉列表选择章节，或检查 @ 后面的章节名。";
+      setMessage(message);
+      setAiMessages((current) => [...current, { role: "AI", content: message }]);
+      return;
+    }
+    const history = aiMessages.slice(-4);
+
     setAiRunning(true);
-    setAiResult("");
-    setMessage(`正在请求 AI：${action}`);
+    setAiMessages((current) => [...current, { role: "你", content: question }]);
+    setMessage(references.length ? `正在请求 AI，已引用：${references.map((chapter) => chapter.title).join("、")}` : "正在请求 AI。");
 
     try {
       const result = await fetchJson<{
@@ -976,39 +1343,28 @@ export function WorkbenchShell() {
           mode,
           providerId,
           modelName,
-          prompt,
+          prompt: question,
           context: {
-            scene: {
-              title: selectedScene.title,
-              summary: selectedScene.summary,
-              goal: selectedScene.goal,
-              conflict: selectedScene.conflict,
-              outcome: selectedScene.outcome,
-              contentText: selectedScene.contentText,
-            },
-            entities: relatedEntities.map((entity) => ({
-              type: entity.type,
-              name: entity.name,
-              summary: entity.summary,
+            referencedChapters: references.map((chapter) => ({
+              title: chapter.title,
+              summary: chapter.summary,
+              storyTime: chapter.storyTime,
+              status: chapter.status,
+              contentText: chapter.contentText,
             })),
-            threads: relatedThreads.map((thread) => ({
-              type: thread.type,
-              title: thread.title,
-              status: thread.status,
-              summary: thread.summary,
-            })),
-            library: (data?.libraryItems ?? []).slice(0, 6).map((item) => ({
-              type: item.type,
-              title: item.title,
-              content: item.content,
+            chatHistory: history.map((message) => ({
+              role: message.role === "你" ? "user" : "assistant",
+              content: message.content,
             })),
           },
         }),
       });
-      setAiResult(result.result.text);
+      setAiMessages((current) => [...current, { role: "AI", content: result.result.text }]);
       setMessage(`AI 已返回：${result.result.providerName} / ${result.result.modelName}`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "AI 请求失败。");
+      const errorMessage = error instanceof Error ? error.message : "AI 请求失败。";
+      setMessage(errorMessage);
+      setAiMessages((current) => [...current, { role: "AI", content: `请求失败：${errorMessage}` }]);
     } finally {
       setAiRunning(false);
     }
@@ -1238,30 +1594,30 @@ export function WorkbenchShell() {
   ];
 
   return (
-    <main className={clsx("app-shell app-shell-v2", navCollapsed && "app-shell-nav-collapsed")}>
-      <aside className={clsx("sidebar nav-sidebar", navCollapsed && "nav-sidebar-collapsed")}>
-        <div className="nav-sidebar-head">
+    <main
+      className="app-shell app-shell-v2 app-shell-topnav"
+      style={
+        {
+          "--workbench-bg": workbenchBackgroundColor,
+          "--left-panel-width": `${leftPanelWidth}px`,
+          "--right-panel-width": `${rightPanelWidth}px`,
+        } as CSSProperties
+      }
+    >
+      <header className="top-toolbar">
+        <div className="top-toolbar-brand">
           <div>
-            <div className="brand brand-full text-xl">乙木</div>
-            <div className="brand brand-short text-xl">乙木</div>
-            <div className="text-sm muted nav-subtitle">本地小说创作工作台</div>
+            <div className="brand text-xl">墨枝</div>
+            <div className="text-sm muted nav-subtitle">长篇小说创作台</div>
           </div>
-          <button
-            className="button icon-button"
-            onClick={() => setNavCollapsed((value) => !value)}
-            title={navCollapsed ? "展开左侧栏" : "收起左侧栏"}
-            aria-label={navCollapsed ? "展开左侧栏" : "收起左侧栏"}
-          >
-            {navCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-          </button>
         </div>
 
-        <button className="button button-primary mb-4 w-full nav-create-button" onClick={createNovel} title="新建小说">
+        <button className="button button-primary nav-create-button" onClick={createNovel} title="新建小说">
           <Plus size={16} />
-          <span className="nav-label">新建小说</span>
+          新建小说
         </button>
 
-        <div className="nav-block">
+        <div className="top-nav-block" role="tablist" aria-label="工作台模块">
           {navItems.map((item) => (
             <button
               key={item.key}
@@ -1275,29 +1631,28 @@ export function WorkbenchShell() {
           ))}
         </div>
 
-        <div className="panel-block mt-5 nav-project-panel">
-          <div className="panel-title">当前小说</div>
+        <div className="top-project-picker">
           {projects.length === 0 ? (
-            <p className="text-sm leading-7 muted">还没有小说项目。先新建一本，工作台会生成第一卷、第一章和开场 Scene。</p>
+            <span className="text-sm muted">未创建小说</span>
           ) : (
-            <div className="space-y-2">
+            <select
+              className="input"
+              value={activeProject?.id ?? ""}
+              onChange={(event) => {
+                setActiveProjectId(event.target.value);
+                loadWorkbench(event.target.value).catch((error) => setMessage(error.message));
+              }}
+              aria-label="当前小说"
+            >
               {projects.map((project) => (
-                <button
-                  key={project.id}
-                  className={clsx("tree-item", activeProject?.id === project.id && "tree-item-active")}
-                  onClick={() => {
-                    setActiveProjectId(project.id);
-                    loadWorkbench(project.id).catch((error) => setMessage(error.message));
-                  }}
-                >
-                  <span className="block truncate font-semibold">{project.name}</span>
-                  <span className="block text-xs muted">{project.volumes.length} 卷</span>
-                </button>
+                <option key={project.id} value={project.id}>
+                  {project.name}
+                </option>
               ))}
-            </div>
+            </select>
           )}
         </div>
-      </aside>
+      </header>
 
       <section className="main-stage workbench-stage">
         {view === "首页" ? (
@@ -1309,8 +1664,8 @@ export function WorkbenchShell() {
             onCreateLibrary={createLibraryItem}
             onContinue={() => setView("正文")}
             onDeleteProject={() => activeProject && deleteProjectById(activeProject)}
-            onSelectScene={(id) => {
-              setSelectedSceneId(id);
+            onSelectChapter={(id) => {
+              setSelectedChapterId(id);
               setView("正文");
             }}
           />
@@ -1318,26 +1673,33 @@ export function WorkbenchShell() {
         {view === "正文" ? (
           <ManuscriptView
             activeProject={activeProject}
-            selectedScene={selectedScene}
+            selectedChapter={selectedChapter}
+            selectedScene={selectedBaseScene}
             saveState={saveState}
+            aiSuggestions={aiSuggestions.filter((suggestion) => suggestion.chapterId === selectedChapter?.id)}
             searchQuery={searchQuery}
             searchResults={searchResults}
             onAddVolume={addVolume}
             onAddChapter={addChapter}
-            onAddScene={addScene}
             onDeleteVolume={deleteVolumeById}
             onDeleteChapter={deleteChapterById}
-            onDeleteScene={deleteSceneById}
-            onSelectScene={setSelectedSceneId}
-            onUpdateScene={updateScene}
+            onSelectChapter={setSelectedChapterId}
+            onUpdateChapter={updateChapter}
+            onUpdateScene={updateBaseScene}
             onUpdateContent={updateContent}
-            onManualSave={saveCurrentSceneNow}
+            onManualSave={saveCurrentChapterNow}
             onCreateTimelineEvent={createTimelineEvent}
             onSelectionAction={handleSelectionAction}
+            onCopyAiSuggestion={copyAiSuggestion}
+            onDeleteAiSuggestion={deleteAiSuggestion}
+            workbenchBackgroundColor={workbenchBackgroundColor}
+            onWorkbenchBackgroundChange={setWorkbenchBackgroundColor}
+            leftPanelWidth={leftPanelWidth}
+            onLeftPanelWidthChange={setLeftPanelWidth}
             onSearchQueryChange={setSearchQuery}
             onOpenSearchResult={(result) => {
               if (result.kind === "正文") {
-                setSelectedSceneId(result.id);
+                setSelectedChapterId(result.id);
                 setView("正文");
               }
             }}
@@ -1377,17 +1739,13 @@ export function WorkbenchShell() {
         {view === "故事" ? (
           <StoryView
             activeProject={activeProject}
-            selectedSceneId={selectedSceneId}
+            selectedChapterId={selectedChapterId}
             onAddVolume={addVolume}
             onAddChapter={addChapter}
-            onAddScene={addScene}
-            onAddBeat={addBeat}
             onDeleteVolume={deleteVolumeById}
             onDeleteChapter={deleteChapterById}
-            onDeleteScene={deleteSceneById}
-            onDeleteBeat={deleteBeatById}
-            onSelectScene={(id) => {
-              setSelectedSceneId(id);
+            onSelectChapter={(id) => {
+              setSelectedChapterId(id);
               setView("正文");
             }}
           />
@@ -1433,8 +1791,10 @@ export function WorkbenchShell() {
         ) : null}
         {view === "关系" ? (
           <RelationView
+            activeProject={activeProject}
             relations={data?.relations ?? []}
-            selectedScene={selectedScene}
+            selectedChapter={selectedChapter}
+            selectedScene={selectedBaseScene}
             entities={data?.worldEntities ?? []}
             threads={data?.narrativeThreads ?? []}
             libraryItems={data?.libraryItems ?? []}
@@ -1461,23 +1821,39 @@ export function WorkbenchShell() {
         ) : null}
       </section>
 
+      <div
+        className="panel-resize-handle panel-resize-handle-right"
+        role="separator"
+        aria-label="调整右侧栏宽度"
+        onMouseDown={(event) => {
+          event.preventDefault();
+          setDraggingPanel("right");
+        }}
+      />
+
       <aside className="search-panel context-panel">
         {view === "正文" ? (
           <ManuscriptSidePanel
             activeTab={manuscriptSideTab}
             onTabChange={setManuscriptSideTab}
-            selectedScene={selectedScene}
+            selectedChapter={selectedChapter}
+            selectedScene={selectedBaseScene}
             relations={data?.relations ?? []}
             entities={data?.worldEntities ?? []}
             threads={data?.narrativeThreads ?? []}
             libraryItems={data?.libraryItems ?? []}
             aiPrompt={aiPrompt}
-            aiResult={aiResult}
+            aiMessages={aiMessages}
             aiRunning={aiRunning}
             onAiPromptChange={setAiPrompt}
+            onClearAiMessages={() => setAiMessages([])}
             onCreateRelation={createSceneRelation}
             onDeleteRelation={deleteRelationById}
+            onDeleteScene={deleteSceneById}
+            onPrepareSceneAi={prepareSceneFragmentAi}
+            onCreateTimelineFromScene={createTimelineEventFromSceneFragment}
             onRunAiAction={runAiWritingAction}
+            chapters={activeProjectChapters}
           />
         ) : (
           <>
@@ -1487,7 +1863,7 @@ export function WorkbenchShell() {
               onSearchQueryChange={setSearchQuery}
               onOpenResult={(result) => {
                 if (result.kind === "正文") {
-                  setSelectedSceneId(result.id);
+                  setSelectedChapterId(result.id);
                   setView("正文");
                 }
               }}
@@ -1495,7 +1871,7 @@ export function WorkbenchShell() {
 
             <ContextSummary
               activeProjectName={activeProject?.name ?? "未创建"}
-              selectedScene={selectedScene}
+              selectedChapter={selectedChapter}
               message={message}
               entityCount={data?.worldEntities.length ?? 0}
               threadCount={data?.narrativeThreads.length ?? 0}
@@ -1516,7 +1892,7 @@ function DashboardView({
   onCreateLibrary,
   onContinue,
   onDeleteProject,
-  onSelectScene,
+  onSelectChapter,
 }: {
   data: WorkbenchData | null;
   activeProjectName: string;
@@ -1525,7 +1901,7 @@ function DashboardView({
   onCreateLibrary: () => void;
   onContinue: () => void;
   onDeleteProject: () => void;
-  onSelectScene: (id: string) => void;
+  onSelectChapter: (id: string) => void;
 }) {
   const stats = data?.dashboard;
   return (
@@ -1547,8 +1923,8 @@ function DashboardView({
       <div className="metric-grid">
         <Metric label="总字数" value={stats?.totalWords ?? 0} />
         <Metric label="章节" value={stats?.chapterCount ?? 0} />
-        <Metric label="Scene" value={stats?.sceneCount ?? 0} />
-        <Metric label="未完成 Scene" value={stats?.unfinishedScenes ?? 0} />
+        <Metric label="正文单元" value={stats?.chapterCount ?? 0} />
+        <Metric label="未完成章节" value={stats?.unfinishedScenes ?? 0} />
         <Metric label="世界条目" value={stats?.entityCount ?? 0} />
         <Metric label="未回收线索" value={stats?.unresolvedThreads ?? 0} />
       </div>
@@ -1557,14 +1933,14 @@ function DashboardView({
           <div className="panel-title">最近编辑</div>
           <div className="space-y-2">
             {stats?.recentlyUpdated.length ? (
-              stats.recentlyUpdated.map((scene) => (
-                <button key={scene.id} className="list-row" onClick={() => onSelectScene(scene.id)}>
-                  <span>{scene.title}</span>
-                  <span className="muted">{formatDate(scene.updatedAt)} / {scene.wordCount} 字</span>
+              stats.recentlyUpdated.map((chapter) => (
+                <button key={chapter.id} className="list-row" onClick={() => onSelectChapter(chapter.id)}>
+                  <span>{chapter.title}</span>
+                  <span className="muted">{formatDate(chapter.updatedAt)} / {chapter.wordCount} 字</span>
                 </button>
               ))
             ) : (
-              <p className="text-sm muted">还没有最近编辑的 Scene。</p>
+              <p className="text-sm muted">还没有最近编辑的章节。</p>
             )}
           </div>
         </section>
@@ -1800,7 +2176,7 @@ function BuildView({
         <section className="panel-block build-draft-panel">
           <div className="panel-title">章节细纲</div>
           <div className="build-result-box build-result-box-large">
-            {chapterResult ? <pre>{chapterResult}</pre> : <p className="muted">先生成总纲，再点击“生成细纲”。AI 会把故事推进拆成卷、章、Scene、冲突变化和结尾钩子。</p>}
+            {chapterResult ? <pre>{chapterResult}</pre> : <p className="muted">先生成总纲，再点击“生成细纲”。AI 会把故事推进拆成卷、章、场景、冲突变化和结尾钩子。</p>}
           </div>
         </section>
       ) : null}
@@ -1857,82 +2233,172 @@ function BuildChatBox({ messages, running }: { messages: BuildMessage[]; running
 
 function ManuscriptView({
   activeProject,
+  selectedChapter,
   selectedScene,
   saveState,
+  aiSuggestions,
   searchQuery,
   searchResults,
   onAddVolume,
   onAddChapter,
-  onAddScene,
   onDeleteVolume,
   onDeleteChapter,
-  onDeleteScene,
-  onSelectScene,
+  onSelectChapter,
+  onUpdateChapter,
   onUpdateScene,
   onUpdateContent,
   onManualSave,
   onCreateTimelineEvent,
   onSelectionAction,
+  onCopyAiSuggestion,
+  onDeleteAiSuggestion,
+  workbenchBackgroundColor,
+  onWorkbenchBackgroundChange,
+  onLeftPanelWidthChange,
   onSearchQueryChange,
   onOpenSearchResult,
 }: {
   activeProject: ProjectNode | null;
+  selectedChapter: ChapterNode | null;
   selectedScene: SceneNode | null;
   saveState: SaveState;
+  aiSuggestions: AiSuggestionCard[];
   searchQuery: string;
   searchResults: SearchResult[];
   onAddVolume: () => void;
   onAddChapter: (volumeId: string, count: number) => void;
-  onAddScene: (chapterId: string, count: number) => void;
   onDeleteVolume: (volumeId: string, title: string) => void;
   onDeleteChapter: (chapterId: string, title: string) => void;
-  onDeleteScene: (sceneId: string, title: string) => void;
-  onSelectScene: (id: string) => void;
+  onSelectChapter: (id: string) => void;
+  onUpdateChapter: (patch: Partial<ChapterNode>) => void;
   onUpdateScene: (patch: Partial<SceneNode>) => void;
   onUpdateContent: (content: JSONContent, text: string) => void;
   onManualSave: () => void;
   onCreateTimelineEvent: () => void;
   onSelectionAction: (action: ManuscriptSelectionAction, text: string) => void;
+  onCopyAiSuggestion: (suggestion: AiSuggestionCard) => void;
+  onDeleteAiSuggestion: (id: string) => void;
+  workbenchBackgroundColor: string;
+  onWorkbenchBackgroundChange: (color: string) => void;
+  leftPanelWidth: number;
+  onLeftPanelWidthChange: (width: number) => void;
   onSearchQueryChange: (query: string) => void;
   onOpenSearchResult: (result: SearchResult) => void;
 }) {
-  const [treeCollapsed, setTreeCollapsed] = useState(false);
-  const [editorFontSize, setEditorFontSize] = useState(18);
+  const [editorFontSize, setEditorFontSize] = useState(defaultManuscriptPreferences.editorFontSize);
+  const [editorFontFamily, setEditorFontFamily] = useState(defaultManuscriptPreferences.editorFontFamily);
+  const [editorTextColor, setEditorTextColor] = useState(defaultManuscriptPreferences.editorTextColor);
+  const [editorBackgroundColor, setEditorBackgroundColor] = useState(defaultManuscriptPreferences.editorBackgroundColor);
+  const [annotationColors, setAnnotationColors] = useState<AnnotationColors>(defaultManuscriptPreferences.annotationColors);
+  const [preferencesLoaded, setPreferencesLoaded] = useState(false);
+  const [leftTab, setLeftTab] = useState<"正文树" | "搜索">("正文树");
+  const [stylePanelOpen, setStylePanelOpen] = useState(false);
+  const [metaPanelOpen, setMetaPanelOpen] = useState(false);
+  const [formatTick, setFormatTick] = useState(0);
+  const layoutRef = useRef<HTMLDivElement | null>(null);
+  const [draggingLeftPanel, setDraggingLeftPanel] = useState(false);
+  const updateAnnotationColor = (kind: AnnotationKind, color: string) => {
+    setAnnotationColors((current) => ({ ...current, [kind]: color }));
+  };
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(manuscriptPreferencesStorageKey);
+      if (!saved) {
+        return;
+      }
+      const parsed = JSON.parse(saved) as Partial<typeof defaultManuscriptPreferences>;
+      if (typeof parsed.editorFontSize === "number" && [14, 16, 18, 20, 22].includes(parsed.editorFontSize)) {
+        setEditorFontSize(parsed.editorFontSize);
+      }
+      if (typeof parsed.editorFontFamily === "string" && editorFontFamilies.some((font) => font.value === parsed.editorFontFamily)) {
+        setEditorFontFamily(parsed.editorFontFamily);
+      }
+      if (typeof parsed.editorTextColor === "string" && editorTextColors.includes(parsed.editorTextColor)) {
+        setEditorTextColor(parsed.editorTextColor);
+      }
+      if (typeof parsed.editorBackgroundColor === "string" && editorBackgroundColors.includes(parsed.editorBackgroundColor)) {
+        setEditorBackgroundColor(parsed.editorBackgroundColor);
+      }
+      if (parsed.annotationColors) {
+        setAnnotationColors({
+          伏笔: annotationColorOptions.includes(parsed.annotationColors.伏笔) ? parsed.annotationColors.伏笔 : defaultAnnotationColors.伏笔,
+          时间轴: annotationColorOptions.includes(parsed.annotationColors.时间轴) ? parsed.annotationColors.时间轴 : defaultAnnotationColors.时间轴,
+          场景: annotationColorOptions.includes(parsed.annotationColors.场景) ? parsed.annotationColors.场景 : defaultAnnotationColors.场景,
+        });
+      }
+    } catch {
+      window.localStorage.removeItem(manuscriptPreferencesStorageKey);
+    } finally {
+      setPreferencesLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!preferencesLoaded) {
+      return;
+    }
+    window.localStorage.setItem(
+      manuscriptPreferencesStorageKey,
+      JSON.stringify({
+        editorFontSize,
+        editorFontFamily,
+        editorTextColor,
+        editorBackgroundColor,
+        annotationColors,
+      })
+    );
+  }, [annotationColors, editorBackgroundColor, editorFontFamily, editorFontSize, editorTextColor, preferencesLoaded]);
+
+  useEffect(() => {
+    if (!draggingLeftPanel) {
+      return;
+    }
+
+    const handleMove = (event: MouseEvent) => {
+      const rect = layoutRef.current?.getBoundingClientRect();
+      if (!rect) {
+        return;
+      }
+      onLeftPanelWidthChange(clampPanelWidth(event.clientX - rect.left, 240, 520));
+    };
+    const stopDragging = () => setDraggingLeftPanel(false);
+
+    document.body.classList.add("is-resizing-panel");
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", stopDragging);
+    return () => {
+      document.body.classList.remove("is-resizing-panel");
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", stopDragging);
+    };
+  }, [draggingLeftPanel, onLeftPanelWidthChange]);
 
   return (
-    <div className="manuscript-layout">
-      <aside className={clsx("writing-left-panel", treeCollapsed && "writing-left-panel-tree-collapsed")}>
-        <section className="story-tree-panel">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <div className="panel-title">正文树</div>
-            {treeCollapsed ? (
-              <button
-                className="button icon-button"
-                onClick={() => setTreeCollapsed(false)}
-                title="展开正文树"
-                aria-label="展开正文树"
-              >
-                <PanelLeftOpen size={15} />
-              </button>
-            ) : (
+    <div className="manuscript-layout" ref={layoutRef}>
+      <aside className="writing-left-panel">
+        <section className="story-tree-panel manuscript-left-tabs-panel">
+          <div className="manuscript-left-tabs-head">
+            <div className="module-tabs compact-tabs">
+              {(["正文树", "搜索"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  className={clsx("module-tab", leftTab === tab && "module-tab-active")}
+                  onClick={() => setLeftTab(tab)}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+            {leftTab === "正文树" ? (
               <span className="inline-flex gap-1">
                 <button className="button icon-button" onClick={onAddVolume} title="新建卷">
                   <FolderPlus size={15} />
                 </button>
-                <button
-                  className="button icon-button"
-                  onClick={() => setTreeCollapsed(true)}
-                  title="收起正文树"
-                  aria-label="收起正文树"
-                >
-                  <PanelLeftClose size={15} />
-                </button>
               </span>
-            )}
+            ) : null}
           </div>
-          {treeCollapsed ? (
-            <p className="text-sm leading-7 muted">正文树已收起，搜索区已扩大。</p>
-          ) : (
+          {leftTab === "正文树" ? (
             <div className="story-tree-content">
               {activeProject?.volumes.map((volume) => (
                 <div key={volume.id} className="tree-group">
@@ -1949,57 +2415,81 @@ function ManuscriptView({
                   </div>
                   {volume.chapters.map((chapter) => (
                     <div key={chapter.id} className="tree-nest">
-                      <div className="tree-subheading">
-                        <span>{chapter.title}</span>
-                        <span className="inline-flex gap-1">
-                          <button className="button icon-button" onClick={() => onAddScene(chapter.id, chapter.scenes.length)} title="新建 Scene">
-                            <Plus size={14} />
-                          </button>
-                          <button className="button icon-button button-danger" onClick={() => onDeleteChapter(chapter.id, chapter.title)} title="删除章节">
-                            <Trash2 size={14} />
-                          </button>
-                        </span>
+                      <div className="tree-line">
+                        <button
+                          className={clsx("tree-item text-sm", selectedChapter?.id === chapter.id && "tree-item-active")}
+                          onClick={() => onSelectChapter(chapter.id)}
+                        >
+                          <span className="block truncate">{chapter.title}</span>
+                          <span className="block text-xs muted">{chapter.status} / {chapter.wordCount} 字</span>
+                        </button>
+                        <button className="button icon-button button-danger" onClick={() => onDeleteChapter(chapter.id, chapter.title)} title="删除章节">
+                          <Trash2 size={14} />
+                        </button>
                       </div>
-                      {chapter.scenes.map((scene) => (
-                        <div key={scene.id} className="tree-line">
-                          <button
-                            className={clsx("tree-item text-sm", selectedScene?.id === scene.id && "tree-item-active")}
-                            onClick={() => onSelectScene(scene.id)}
-                          >
-                            <span className="block truncate">{scene.title}</span>
-                            <span className="block text-xs muted">{scene.status} / {scene.wordCount} 字</span>
-                          </button>
-                          <button className="button icon-button button-danger" onClick={() => onDeleteScene(scene.id, scene.title)} title="删除 Scene">
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      ))}
                     </div>
                   ))}
                 </div>
               ))}
             </div>
+          ) : (
+            <SearchTool
+              searchQuery={searchQuery}
+              searchResults={searchResults}
+              onSearchQueryChange={onSearchQueryChange}
+              onOpenResult={onOpenSearchResult}
+            />
           )}
         </section>
-        <section className="manuscript-search-panel">
-          <SearchTool
-            searchQuery={searchQuery}
-            searchResults={searchResults}
-            onSearchQueryChange={onSearchQueryChange}
-            onOpenResult={onOpenSearchResult}
-          />
-        </section>
       </aside>
+      <div
+        className="panel-resize-handle panel-resize-handle-left"
+        role="separator"
+        aria-label="调整左侧栏宽度"
+        onMouseDown={(event) => {
+          event.preventDefault();
+          setDraggingLeftPanel(true);
+        }}
+      />
       <div className="editor-frame editor-frame-v2">
         <div className="editor-topbar">
           <input
             className="title-input"
-            value={selectedScene?.title ?? ""}
-            onChange={(event) => onUpdateScene({ title: event.target.value })}
-            placeholder="选择或新建一个 Scene"
-            disabled={!selectedScene}
+            value={selectedChapter?.title ?? ""}
+            onChange={(event) => onUpdateChapter({ title: event.target.value })}
+            placeholder="选择或新建一个章节"
+            disabled={!selectedChapter}
           />
           <div className="editor-topbar-actions">
+            <button className={clsx("button save-button", stylePanelOpen && "button-primary")} onClick={() => setStylePanelOpen((open) => !open)} title="打开或收起样式设置">
+              <SlidersHorizontal size={15} />
+              样式
+            </button>
+            <button className={clsx("button save-button", metaPanelOpen && "button-primary")} disabled={!selectedChapter} onClick={() => setMetaPanelOpen((open) => !open)} title="打开或收起章节元信息">
+              <Info size={15} />
+              信息
+            </button>
+            <button
+              className={clsx("button save-button", (saveState === "有改动" || saveState === "保存失败") && "button-primary")}
+              disabled={!selectedChapter || saveState === "保存中"}
+              onClick={onManualSave}
+              title="立即保存当前章节"
+            >
+              <Save size={15} />
+              {saveState}
+            </button>
+            <button className="button save-button" disabled={!selectedChapter} onClick={() => setFormatTick((value) => value + 1)} title="整理段落、首行缩进并两端对齐">
+              <FileText size={15} />
+              排版
+            </button>
+            <button className="button save-button" disabled={!selectedChapter} onClick={onCreateTimelineEvent} title="用当前章节创建时间轴事件">
+              <CalendarDays size={15} />
+              入轴
+            </button>
+          </div>
+        </div>
+        {stylePanelOpen ? (
+          <div className="editor-style-panel">
             <label className="font-size-control">
               字号
               <select className="input" value={editorFontSize} onChange={(event) => setEditorFontSize(Number(event.target.value))}>
@@ -2010,92 +2500,193 @@ function ManuscriptView({
                 ))}
               </select>
             </label>
-            <button
-              className={clsx("button save-button", (saveState === "有改动" || saveState === "保存失败") && "button-primary")}
-              disabled={!selectedScene || saveState === "保存中"}
-              onClick={onManualSave}
-              title="立即保存当前 Scene"
-            >
-              <Save size={15} />
-              {saveState}
-            </button>
-            <button className="button save-button" disabled={!selectedScene} onClick={onCreateTimelineEvent} title="用当前 Scene 创建时间轴事件">
-              <CalendarDays size={15} />
-              入轴
-            </button>
+            <label className="font-size-control">
+              字体
+              <select className="input editor-font-select" value={editorFontFamily} onChange={(event) => setEditorFontFamily(event.target.value)}>
+                {editorFontFamilies.map((font) => (
+                  <option key={font.label} value={font.value}>
+                    {font.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <SwatchSelect label="字色" value={editorTextColor} options={editorTextColors} onChange={setEditorTextColor} />
+            <SwatchSelect label="正文" value={editorBackgroundColor} options={editorBackgroundColors} onChange={setEditorBackgroundColor} />
+            <SwatchSelect label="全局" value={workbenchBackgroundColor} options={workbenchBackgroundColors} onChange={onWorkbenchBackgroundChange} />
+            <SwatchSelect label="伏笔" value={annotationColors.伏笔} options={annotationColorOptions} onChange={(color) => updateAnnotationColor("伏笔", color)} />
+            <SwatchSelect label="时间" value={annotationColors.时间轴} options={annotationColorOptions} onChange={(color) => updateAnnotationColor("时间轴", color)} />
+            <SwatchSelect label="场景" value={annotationColors.场景} options={annotationColorOptions} onChange={(color) => updateAnnotationColor("场景", color)} />
           </div>
-        </div>
-        {selectedScene ? (
+        ) : null}
+        {selectedChapter && metaPanelOpen ? (
           <div className="scene-meta-grid">
             <label>
+              章节结构
+              <input className="input" value={selectedScene?.title ?? ""} onChange={(event) => onUpdateScene({ title: event.target.value })} placeholder="当前章节的结构名称" disabled={!selectedScene} />
+            </label>
+            <label>
               状态
-              <select className="input" value={selectedScene.status} onChange={(event) => onUpdateScene({ status: event.target.value })}>
+              <select className="input" value={selectedScene?.status ?? "草稿"} onChange={(event) => onUpdateScene({ status: event.target.value })} disabled={!selectedScene}>
                 {sceneStatuses.map((status) => (
                   <option key={status}>{status}</option>
                 ))}
               </select>
             </label>
             <label>
-              POV
-              <input className="input" value={selectedScene.pov} onChange={(event) => onUpdateScene({ pov: event.target.value })} placeholder="谁的视角" />
+              视角
+              <input className="input" value={selectedScene?.pov ?? ""} onChange={(event) => onUpdateScene({ pov: event.target.value })} placeholder="谁的视角" disabled={!selectedScene} />
             </label>
             <label>
               故事时间
-              <input className="input" value={selectedScene.storyTime} onChange={(event) => onUpdateScene({ storyTime: event.target.value })} placeholder="例如：帝国历 17 年冬" />
+              <input className="input" value={selectedScene?.storyTime ?? ""} onChange={(event) => onUpdateScene({ storyTime: event.target.value })} placeholder="例如：帝国历 17 年冬" disabled={!selectedScene} />
             </label>
             <label className="wide">
-              Scene 摘要
-              <input className="input" value={selectedScene.summary} onChange={(event) => onUpdateScene({ summary: event.target.value })} placeholder="这一场发生了什么" />
+              结构摘要
+              <input className="input" value={selectedScene?.summary ?? ""} onChange={(event) => onUpdateScene({ summary: event.target.value })} placeholder="这一场发生了什么" disabled={!selectedScene} />
             </label>
             <label>
               目标
-              <input className="input" value={selectedScene.goal} onChange={(event) => onUpdateScene({ goal: event.target.value })} placeholder="角色想要什么" />
+              <input className="input" value={selectedScene?.goal ?? ""} onChange={(event) => onUpdateScene({ goal: event.target.value })} placeholder="角色想要什么" disabled={!selectedScene} />
             </label>
             <label>
               冲突
-              <input className="input" value={selectedScene.conflict} onChange={(event) => onUpdateScene({ conflict: event.target.value })} placeholder="什么阻止他" />
+              <input className="input" value={selectedScene?.conflict ?? ""} onChange={(event) => onUpdateScene({ conflict: event.target.value })} placeholder="什么阻止他" disabled={!selectedScene} />
             </label>
             <label>
               结果
-              <input className="input" value={selectedScene.outcome} onChange={(event) => onUpdateScene({ outcome: event.target.value })} placeholder="结尾改变了什么" />
+              <input className="input" value={selectedScene?.outcome ?? ""} onChange={(event) => onUpdateScene({ outcome: event.target.value })} placeholder="结尾改变了什么" disabled={!selectedScene} />
             </label>
           </div>
         ) : null}
-        <ManuscriptEditor scene={selectedScene} fontSize={editorFontSize} onChange={onUpdateContent} onSelectionAction={onSelectionAction} />
+        <ManuscriptEditor
+          chapter={selectedChapter}
+          fontSize={editorFontSize}
+          fontFamily={editorFontFamily}
+          textColor={editorTextColor}
+          backgroundColor={editorBackgroundColor}
+          annotationColors={annotationColors}
+          formatTick={formatTick}
+          onChange={onUpdateContent}
+          onSelectionAction={onSelectionAction}
+        />
+        <AiSuggestionPanel suggestions={aiSuggestions} onCopy={onCopyAiSuggestion} onDelete={onDeleteAiSuggestion} />
       </div>
     </div>
+  );
+}
+
+function AiSuggestionPanel({
+  suggestions,
+  onCopy,
+  onDelete,
+}: {
+  suggestions: AiSuggestionCard[];
+  onCopy: (suggestion: AiSuggestionCard) => void;
+  onDelete: (id: string) => void;
+}) {
+  if (!suggestions.length) {
+    return null;
+  }
+
+  return (
+    <section className="ai-suggestion-panel">
+      <div className="panel-title">本章 AI 建议</div>
+      <div className="ai-suggestion-list">
+        {suggestions.map((suggestion) => (
+          <article key={suggestion.id} className="ai-suggestion-card">
+            <div className="ai-suggestion-head">
+              <span className="pill">{suggestion.action}</span>
+              <span className="text-xs muted">{formatDate(suggestion.createdAt)}</span>
+            </div>
+            <div className="ai-suggestion-block">
+              <strong>原文</strong>
+              <p>{suggestion.originalText}</p>
+            </div>
+            <div className="ai-suggestion-block">
+              <strong>建议</strong>
+              <pre>{suggestion.suggestion}</pre>
+            </div>
+            <div className="ai-suggestion-actions">
+              <button className="button" onClick={() => onCopy(suggestion)}>
+                复制
+              </button>
+              <button className="button button-danger" onClick={() => onDelete(suggestion.id)}>
+                删除
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function SwatchSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: string[];
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="font-size-control swatch-select">
+      {label}
+      <select className="input" value={value} onChange={(event) => onChange(event.target.value)}>
+        {options.map((color) => (
+          <option key={color} value={color}>
+            {color}
+          </option>
+        ))}
+      </select>
+      <span className="color-swatch" style={{ backgroundColor: value }} aria-hidden="true" />
+    </label>
   );
 }
 
 function ManuscriptSidePanel({
   activeTab,
   onTabChange,
+  selectedChapter,
   selectedScene,
   relations,
   entities,
   threads,
   libraryItems,
   aiPrompt,
-  aiResult,
+  aiMessages,
   aiRunning,
   onAiPromptChange,
+  onClearAiMessages,
   onCreateRelation,
   onDeleteRelation,
+  onDeleteScene,
+  onPrepareSceneAi,
+  onCreateTimelineFromScene,
   onRunAiAction,
+  chapters,
 }: {
   activeTab: ManuscriptSideTab;
   onTabChange: (tab: ManuscriptSideTab) => void;
+  selectedChapter: ChapterNode | null;
   selectedScene: SceneNode | null;
   relations: WorkbenchData["relations"];
   entities: WorldEntity[];
   threads: NarrativeThread[];
   libraryItems: LibraryItem[];
   aiPrompt: string;
-  aiResult: string;
+  aiMessages: BuildMessage[];
   aiRunning: boolean;
   onAiPromptChange: (prompt: string) => void;
-  onCreateRelation: (targetType: "世界实体" | "叙事线索" | "资料", targetId: string, relationType: string) => void;
+  onClearAiMessages: () => void;
+  onCreateRelation: (targetType: "世界实体" | "叙事线索" | "资料", targetId: string, relationType: string, sourceSceneId?: string) => void;
   onDeleteRelation: (relationId: string) => void;
+  onDeleteScene: (sceneId: string, title: string) => void;
+  onPrepareSceneAi: (scene: SceneNode) => void;
+  onCreateTimelineFromScene: (scene: SceneNode) => void;
   onRunAiAction: (
     action: AiAction,
     mode: AiMode,
@@ -2103,11 +2694,12 @@ function ManuscriptSidePanel({
     providerId: string | null,
     modelName: string
   ) => void;
+  chapters: ChapterNode[];
 }) {
   return (
     <div className="manuscript-side-panel">
       <div className="side-tabs" role="tablist" aria-label="正文侧栏">
-        {(["AI", "关联"] as const).map((tab) => (
+        {(["AI", "关联", "场景"] as const).map((tab) => (
           <button
             key={tab}
             className={clsx("side-tab", activeTab === tab && "side-tab-active")}
@@ -2115,21 +2707,23 @@ function ManuscriptSidePanel({
             role="tab"
             aria-selected={activeTab === tab}
           >
-            {tab === "AI" ? "AI 辅助" : "Scene 关联"}
+            {tab === "AI" ? "创作对话" : tab}
           </button>
         ))}
       </div>
       {activeTab === "AI" ? (
         <ManuscriptAiPanel
-          selectedScene={selectedScene}
           prompt={aiPrompt}
-          aiResult={aiResult}
+          messages={aiMessages}
           aiRunning={aiRunning}
           onPromptChange={onAiPromptChange}
+          onClearMessages={onClearAiMessages}
           onRunAiAction={onRunAiAction}
+          chapters={chapters}
         />
-      ) : (
+      ) : activeTab === "关联" ? (
         <SceneRelationsPanel
+          selectedChapter={selectedChapter}
           selectedScene={selectedScene}
           relations={relations}
           entities={entities}
@@ -2138,24 +2732,38 @@ function ManuscriptSidePanel({
           onCreateRelation={onCreateRelation}
           onDeleteRelation={onDeleteRelation}
         />
+      ) : (
+        <SceneFragmentsPanel
+          selectedChapter={selectedChapter}
+          relations={relations}
+          entities={entities}
+          threads={threads}
+          libraryItems={libraryItems}
+          onCreateRelation={onCreateRelation}
+          onDeleteRelation={onDeleteRelation}
+          onDeleteScene={onDeleteScene}
+          onPrepareSceneAi={onPrepareSceneAi}
+          onCreateTimelineFromScene={onCreateTimelineFromScene}
+        />
       )}
     </div>
   );
 }
 
 function ManuscriptAiPanel({
-  selectedScene,
   prompt,
-  aiResult,
+  messages,
   aiRunning,
   onPromptChange,
+  onClearMessages,
   onRunAiAction,
+  chapters,
 }: {
-  selectedScene: SceneNode | null;
   prompt: string;
-  aiResult: string;
+  messages: BuildMessage[];
   aiRunning: boolean;
   onPromptChange: (prompt: string) => void;
+  onClearMessages: () => void;
   onRunAiAction: (
     action: AiAction,
     mode: AiMode,
@@ -2163,71 +2771,279 @@ function ManuscriptAiPanel({
     providerId: string | null,
     modelName: string
   ) => void;
+  chapters: ChapterNode[];
 }) {
-  const runAuto = (action: AiAction, mode: AiMode) => {
-    onRunAiAction(action, mode, prompt, null, "");
-  };
-  const askQuestion = () => {
-    const question = window.prompt("你想问当前 Scene 什么？", prompt);
-    if (!question?.trim()) {
+  const insertChapterMention = (chapterTitle: string) => {
+    if (!chapterTitle) {
       return;
     }
-    onPromptChange(question);
-    onRunAiAction("分析当前 Scene", "分析", question, null, "");
+    const mention = `@${chapterTitle}`;
+    if (prompt.includes(mention)) {
+      return;
+    }
+    onPromptChange(prompt.trim() ? `${prompt.trim()} ${mention} ` : `${mention} `);
+  };
+
+  const sendMessage = () => {
+    const question = prompt.trim();
+    if (!question) {
+      return;
+    }
+    onRunAiAction("创作对话", "快速", question, null, "");
+    onPromptChange("");
   };
 
   return (
     <section className="manuscript-ai-panel">
-      <div>
-        <div className="panel-title">AI 写作辅助</div>
-        <p className="text-sm leading-7 muted">跟随当前 Scene 自动分析、续写或润色，只给建议，不改正文。</p>
-      </div>
-      <div className="manuscript-ai-scene">
-        <div className="font-bold">{selectedScene?.title ?? "未选择 Scene"}</div>
-        <div className="text-xs muted">{selectedScene ? `${selectedScene.wordCount} 字 / 自动匹配模型` : "选择 Scene 后可使用"}</div>
+      <div className="manuscript-chat-log">
+        {messages.length ? (
+          messages.map((message, index) => (
+            <article
+              key={`${message.role}-${index}`}
+              className={clsx(
+                "manuscript-chat-message",
+                message.role === "你" ? "manuscript-chat-message-user" : "manuscript-chat-message-ai"
+              )}
+            >
+              <p>{displayAiMessage(message)}</p>
+            </article>
+          ))
+        ) : (
+          <div className="muted">你可以直接聊创作问题，也可以用 @章节名 指定要讨论的正文。</div>
+        )}
+        {aiRunning ? <div className="muted">AI 正在回复...</div> : null}
       </div>
       <textarea
         className="textarea manuscript-ai-prompt"
         value={prompt}
         onChange={(event) => onPromptChange(event.target.value)}
-        placeholder="可选：比如“帮我看节奏是否拖慢”“这段对白哪里不自然”“给我三个续写方向”。"
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            sendMessage();
+          }
+        }}
+        placeholder="输入问题，或用 @章节名 引用正文。Enter 发送，Shift + Enter 换行。"
       />
-      <div className="manuscript-ai-actions">
-        <button className="button" disabled={aiRunning || !selectedScene} onClick={askQuestion}>
+      <div className="manuscript-chat-actions">
+        <select
+          className="input manuscript-chat-reference"
+          disabled={aiRunning || !chapters.length}
+          value=""
+          onChange={(event) => insertChapterMention(event.target.value)}
+          aria-label="引用章节"
+        >
+          <option value="">引用章节</option>
+          {chapters.map((chapter) => (
+            <option key={chapter.id} value={chapter.title}>
+              {chapter.title}
+            </option>
+          ))}
+        </select>
+        <button className="button" disabled={aiRunning || !messages.length} onClick={onClearMessages}>
+          清空对话
+        </button>
+        <button className="button button-primary" disabled={aiRunning || !prompt.trim()} onClick={sendMessage}>
           <Bot size={16} />
-          提问
+          发送
         </button>
-        <button className="button" disabled={aiRunning || !selectedScene} onClick={() => runAuto("分析当前 Scene", "分析")}>
-          <Target size={16} />
-          分析
-        </button>
-        <button className="button button-primary" disabled={aiRunning || !selectedScene} onClick={() => runAuto("续写建议", "创作")}>
-          <Sparkles size={16} />
-          续写
-        </button>
-        <button className="button" disabled={aiRunning || !selectedScene} onClick={() => runAuto("润色建议", "创作")}>
-          <FileText size={16} />
-          润色
-        </button>
-        <button className="button" disabled={aiRunning || !selectedScene} onClick={() => runAuto("改写建议", "创作")}>
-          <FileText size={16} />
-          改写
-        </button>
-      </div>
-      <div className="manuscript-ai-result">
-        {aiRunning ? (
-          <div className="muted">AI 正在阅读当前 Scene...</div>
-        ) : aiResult ? (
-          <pre>{aiResult}</pre>
-        ) : (
-          <div className="muted">建议会显示在这里，方便你边写边参考。</div>
-        )}
       </div>
     </section>
   );
 }
 
+function SceneFragmentsPanel({
+  selectedChapter,
+  relations,
+  entities,
+  threads,
+  libraryItems,
+  onCreateRelation,
+  onDeleteRelation,
+  onDeleteScene,
+  onPrepareSceneAi,
+  onCreateTimelineFromScene,
+}: {
+  selectedChapter: ChapterNode | null;
+  relations: WorkbenchData["relations"];
+  entities: WorldEntity[];
+  threads: NarrativeThread[];
+  libraryItems: LibraryItem[];
+  onCreateRelation: (targetType: "世界实体" | "叙事线索" | "资料", targetId: string, relationType: string, sourceSceneId?: string) => void;
+  onDeleteRelation: (relationId: string) => void;
+  onDeleteScene: (sceneId: string, title: string) => void;
+  onPrepareSceneAi: (scene: SceneNode) => void;
+  onCreateTimelineFromScene: (scene: SceneNode) => void;
+}) {
+  const [relationDrafts, setRelationDrafts] = useState<Record<string, { entity: string; thread: string; library: string }>>({});
+  const sceneFragments = selectedChapter?.scenes.slice(1) ?? [];
+  const relationDraftFor = (sceneId: string) => relationDrafts[sceneId] ?? { entity: "", thread: "", library: "" };
+  const updateRelationDraft = (sceneId: string, key: "entity" | "thread" | "library", value: string) => {
+    setRelationDrafts((current) => ({
+      ...current,
+      [sceneId]: {
+        ...(current[sceneId] ?? { entity: "", thread: "", library: "" }),
+        [key]: value,
+      },
+    }));
+  };
+  const addRelation = (scene: SceneNode, targetType: "世界实体" | "叙事线索" | "资料", targetId: string) => {
+    if (!targetId) {
+      return;
+    }
+    onCreateRelation(targetType, targetId, defaultRelationType(targetType, targetId, entities), scene.id);
+    const key = targetType === "世界实体" ? "entity" : targetType === "叙事线索" ? "thread" : "library";
+    updateRelationDraft(scene.id, key, "");
+  };
+
+  return (
+    <section className="scene-fragments-panel">
+      <div>
+        <div className="panel-title">本章场景</div>
+        <p className="text-sm leading-7 muted">
+          {selectedChapter ? "选中正文片段后右键“划分场景”，这里会沉淀本章的场景片段。" : "选择章节后可查看场景片段。"}
+        </p>
+      </div>
+
+      {selectedChapter ? (
+        sceneFragments.length ? (
+          <div className="scene-fragment-list">
+            {sceneFragments.map((scene, index) => (
+              <SceneFragmentCard
+                key={scene.id}
+                scene={scene}
+                fallbackTitle={`场景片段 ${index + 1}`}
+                relations={relations.filter((relation) => relation.sourceType === "Scene" && relation.sourceId === scene.id)}
+                entities={entities}
+                threads={threads}
+                libraryItems={libraryItems}
+                draft={relationDraftFor(scene.id)}
+                onDraftChange={(key, value) => updateRelationDraft(scene.id, key, value)}
+                onAddRelation={(targetType, targetId) => addRelation(scene, targetType, targetId)}
+                onDeleteRelation={onDeleteRelation}
+                onDeleteScene={onDeleteScene}
+                onPrepareSceneAi={onPrepareSceneAi}
+                onCreateTimelineFromScene={onCreateTimelineFromScene}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="empty-state">本章还没有划分场景。选中正文片段，右键选择“划分场景”。</div>
+        )
+      ) : null}
+    </section>
+  );
+}
+
+function SceneFragmentCard({
+  scene,
+  fallbackTitle,
+  relations,
+  entities,
+  threads,
+  libraryItems,
+  draft,
+  onDraftChange,
+  onAddRelation,
+  onDeleteRelation,
+  onDeleteScene,
+  onPrepareSceneAi,
+  onCreateTimelineFromScene,
+}: {
+  scene: SceneNode;
+  fallbackTitle: string;
+  relations: WorkbenchData["relations"];
+  entities: WorldEntity[];
+  threads: NarrativeThread[];
+  libraryItems: LibraryItem[];
+  draft: { entity: string; thread: string; library: string };
+  onDraftChange: (key: "entity" | "thread" | "library", value: string) => void;
+  onAddRelation: (targetType: "世界实体" | "叙事线索" | "资料", targetId: string) => void;
+  onDeleteRelation: (relationId: string) => void;
+  onDeleteScene: (sceneId: string, title: string) => void;
+  onPrepareSceneAi: (scene: SceneNode) => void;
+  onCreateTimelineFromScene: (scene: SceneNode) => void;
+}) {
+  const relationGroups = buildSceneRelationGroups(relations, entities, threads, libraryItems).filter((group) => group.items.length > 0);
+
+  return (
+    <article className="scene-fragment-card">
+      <div className="scene-fragment-head">
+        <div>
+          <div className="font-bold">{scene.title || fallbackTitle}</div>
+          <div className="text-xs muted">
+            {scene.storyTime ? `${scene.storyTime} / ` : ""}
+            {scene.wordCount} 字 / {relations.length} 条关联
+          </div>
+        </div>
+        <button className="button icon-button button-danger" onClick={() => onDeleteScene(scene.id, scene.title)} title="删除场景片段">
+          <Trash2 size={13} />
+        </button>
+      </div>
+
+      <p>{scene.summary || scene.contentText || "暂无片段内容。"}</p>
+
+      <div className="scene-fragment-actions">
+        <button className="button" onClick={() => onPrepareSceneAi(scene)}>
+          <Bot size={14} />
+          AI 分析
+        </button>
+        <button className="button" onClick={() => onCreateTimelineFromScene(scene)}>
+          <CalendarDays size={14} />
+          入轴
+        </button>
+      </div>
+
+      <div className="scene-fragment-relations">
+        <RelationPicker
+          label="世界"
+          value={draft.entity}
+          options={entities.map((entity) => ({ id: entity.id, title: entity.name, meta: entity.type }))}
+          onChange={(value) => onDraftChange("entity", value)}
+          onAdd={() => onAddRelation("世界实体", draft.entity)}
+        />
+        <RelationPicker
+          label="线索"
+          value={draft.thread}
+          options={threads.map((thread) => ({ id: thread.id, title: thread.title, meta: thread.type }))}
+          onChange={(value) => onDraftChange("thread", value)}
+          onAdd={() => onAddRelation("叙事线索", draft.thread)}
+        />
+        <RelationPicker
+          label="资料"
+          value={draft.library}
+          options={libraryItems.map((item) => ({ id: item.id, title: item.title, meta: item.type }))}
+          onChange={(value) => onDraftChange("library", value)}
+          onAdd={() => onAddRelation("资料", draft.library)}
+        />
+      </div>
+
+      {relationGroups.length ? (
+        <div className="scene-fragment-relation-groups">
+          {relationGroups.map((group) => (
+            <div key={group.title} className="scene-relation-group">
+              <div className="scene-relation-group-title">{group.title}</div>
+              {group.items.map((item) => (
+                <div key={item.relation.id} className="scene-relation-chip">
+                  <span>
+                    {item.title}
+                    <small>{item.meta}</small>
+                  </span>
+                  <button className="button icon-button button-danger" onClick={() => onDeleteRelation(item.relation.id)} title="移除关联">
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
 function SceneRelationsPanel({
+  selectedChapter,
   selectedScene,
   relations,
   entities,
@@ -2236,12 +3052,13 @@ function SceneRelationsPanel({
   onCreateRelation,
   onDeleteRelation,
 }: {
+  selectedChapter: ChapterNode | null;
   selectedScene: SceneNode | null;
   relations: WorkbenchData["relations"];
   entities: WorldEntity[];
   threads: NarrativeThread[];
   libraryItems: LibraryItem[];
-  onCreateRelation: (targetType: "世界实体" | "叙事线索" | "资料", targetId: string, relationType: string) => void;
+  onCreateRelation: (targetType: "世界实体" | "叙事线索" | "资料", targetId: string, relationType: string, sourceSceneId?: string) => void;
   onDeleteRelation: (relationId: string) => void;
 }) {
   const [entityTarget, setEntityTarget] = useState("");
@@ -2260,7 +3077,10 @@ function SceneRelationsPanel({
     if (!targetId) {
       return;
     }
-    onCreateRelation(targetType, targetId, defaultRelationType(targetType, targetId, entities));
+    if (!selectedScene) {
+      return;
+    }
+    onCreateRelation(targetType, targetId, defaultRelationType(targetType, targetId, entities), selectedScene.id);
     if (targetType === "世界实体") {
       setEntityTarget("");
     } else if (targetType === "叙事线索") {
@@ -2273,8 +3093,12 @@ function SceneRelationsPanel({
   return (
     <section className="scene-relations-panel">
       <div>
-        <div className="panel-title">当前 Scene 关联</div>
-        <p className="text-sm leading-7 muted">{selectedScene ? selectedScene.title : "选择 Scene 后可绑定人物、地点、线索和资料。"}</p>
+        <div className="panel-title">当前章节关联</div>
+        <p className="text-sm leading-7 muted">
+          {selectedChapter
+            ? `${selectedChapter.title} / 章节结构：${selectedScene?.title ?? "未生成"}`
+            : "选择章节后可绑定人物、地点、线索和资料。"}
+        </p>
       </div>
 
       {selectedScene ? (
@@ -2325,6 +3149,8 @@ function SceneRelationsPanel({
             ))}
           </div>
         </>
+      ) : selectedChapter ? (
+        <div className="empty-state">当前章节还没有章节结构。重新打开工作台后会自动补齐，或新建章节生成。</div>
       ) : null}
     </section>
   );
@@ -2365,28 +3191,20 @@ function RelationPicker({
 
 function StoryView({
   activeProject,
-  selectedSceneId,
+  selectedChapterId,
   onAddVolume,
   onAddChapter,
-  onAddScene,
-  onAddBeat,
   onDeleteVolume,
   onDeleteChapter,
-  onDeleteScene,
-  onDeleteBeat,
-  onSelectScene,
+  onSelectChapter,
 }: {
   activeProject: ProjectNode | null;
-  selectedSceneId: string | null;
+  selectedChapterId: string | null;
   onAddVolume: () => void;
   onAddChapter: (volumeId: string, count: number) => void;
-  onAddScene: (chapterId: string, count: number) => void;
-  onAddBeat: () => void;
   onDeleteVolume: (volumeId: string, title: string) => void;
   onDeleteChapter: (chapterId: string, title: string) => void;
-  onDeleteScene: (sceneId: string, title: string) => void;
-  onDeleteBeat: (beatId: string, title: string) => void;
-  onSelectScene: (id: string) => void;
+  onSelectChapter: (id: string) => void;
 }) {
   return (
     <div className="workspace-page">
@@ -2416,50 +3234,21 @@ function StoryView({
             </div>
             {volume.chapters.map((chapter) => (
               <div key={chapter.id} className="chapter-card">
-                <div className="story-column-header">
-                  <span>{chapter.title}</span>
-                  <span className="inline-flex gap-1">
-                    <button className="button icon-button" onClick={() => onAddScene(chapter.id, chapter.scenes.length)} title="新建 Scene">
-                      <Plus size={14} />
-                    </button>
-                    <button className="button icon-button button-danger" onClick={() => onDeleteChapter(chapter.id, chapter.title)} title="删除章节">
-                      <Trash2 size={14} />
-                    </button>
-                  </span>
+                <div className={clsx("scene-card", selectedChapterId === chapter.id && "scene-card-active")}>
+                  <button className="scene-card-main" onClick={() => onSelectChapter(chapter.id)}>
+                    <div className="font-bold">{chapter.title}</div>
+                    <div className="text-xs muted">{chapter.status} / {chapter.wordCount} 字</div>
+                    {chapter.summary ? <p>{chapter.summary}</p> : null}
+                  </button>
+                  <button className="button icon-button button-danger scene-delete-button" onClick={() => onDeleteChapter(chapter.id, chapter.title)} title="删除章节">
+                    <Trash2 size={14} />
+                  </button>
                 </div>
-                {chapter.scenes.map((scene) => (
-                  <div key={scene.id} className={clsx("scene-card", selectedSceneId === scene.id && "scene-card-active")}>
-                    <button className="scene-card-main" onClick={() => onSelectScene(scene.id)}>
-                      <div className="font-bold">{scene.title}</div>
-                      <div className="text-xs muted">{scene.status} / {scene.wordCount} 字</div>
-                      {scene.summary ? <p>{scene.summary}</p> : null}
-                    </button>
-                    <button className="button icon-button button-danger scene-delete-button" onClick={() => onDeleteScene(scene.id, scene.title)} title="删除 Scene">
-                      <Trash2 size={14} />
-                    </button>
-                    {scene.beats.length ? (
-                      <div className="beat-list">
-                        {scene.beats.map((beat) => (
-                          <span key={beat.id}>
-                            {beat.title}
-                            <button className="beat-delete" onClick={() => onDeleteBeat(beat.id, beat.title)} title="删除 Beat">
-                              ×
-                            </button>
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                ))}
               </div>
             ))}
           </section>
         ))}
       </div>
-      <button className="button mt-4" onClick={onAddBeat}>
-        <Plus size={16} />
-        给当前 Scene 添加 Beat
-      </button>
     </div>
   );
 }
@@ -2577,7 +3366,7 @@ function TimelineView({
                       />
                     </label>
                     <label>
-                      关联 Scene
+                      关联章节
                       <select
                         className="input"
                         value={event.sceneId ?? ""}
@@ -2901,7 +3690,9 @@ function EntityLikeView<T extends WorldEntity | LibraryItem>({
 }
 
 function RelationView({
+  activeProject,
   relations,
+  selectedChapter,
   selectedScene,
   entities,
   threads,
@@ -2909,34 +3700,24 @@ function RelationView({
   onCreateRelation,
   onDelete,
 }: {
+  activeProject: ProjectNode | null;
   relations: WorkbenchData["relations"];
+  selectedChapter: ChapterNode | null;
   selectedScene: SceneNode | null;
   entities: WorldEntity[];
   threads: NarrativeThread[];
   libraryItems: LibraryItem[];
-  onCreateRelation: (targetType: "世界实体" | "叙事线索" | "资料", targetId: string, relationType: string) => void;
+  onCreateRelation: (targetType: "世界实体" | "叙事线索" | "资料", targetId: string, relationType: string, sourceSceneId?: string) => void;
   onDelete: (relationId: string) => void;
 }) {
-  const [targetType, setTargetType] = useState<"世界实体" | "叙事线索" | "资料">("世界实体");
-  const [targetId, setTargetId] = useState("");
-  const [relationType, setRelationType] = useState("相关");
-  const sceneRelations = relations.filter((relation) => selectedScene && relation.sourceType === "Scene" && relation.sourceId === selectedScene.id);
-  const targetOptions =
-    targetType === "世界实体"
-      ? entities.map((entity) => ({ id: entity.id, title: entity.name, meta: entity.type }))
-      : targetType === "叙事线索"
-        ? threads.map((thread) => ({ id: thread.id, title: thread.title, meta: thread.type }))
-        : libraryItems.map((item) => ({ id: item.id, title: item.title, meta: item.type }));
-  const targetTitle = (relation: WorkbenchData["relations"][number]) =>
-    relationTargetTitle(relation, entities, threads, libraryItems);
-
-  const addRelation = () => {
-    if (!selectedScene || !targetId) {
-      return;
-    }
-    onCreateRelation(targetType, targetId, relationType.trim() || defaultRelationType(targetType, targetId, entities));
-    setTargetId("");
-  };
+  const chapters = activeProject?.volumes.flatMap((volume) =>
+    volume.chapters.map((chapter) => ({
+      volume,
+      chapter,
+      baseScene: chapter.scenes[0] ?? null,
+      sceneFragments: chapter.scenes.slice(1),
+    }))
+  ) ?? [];
 
   return (
     <div className="workspace-page">
@@ -2946,67 +3727,81 @@ function RelationView({
           <h1>关系</h1>
         </div>
       </header>
-      <div className="workspace-grid">
-        <section className="panel-block">
-          <div className="panel-title">给当前 Scene 添加关联</div>
-          <p className="text-sm leading-7 muted">当前 Scene：{selectedScene?.title ?? "未选择 Scene"}</p>
-          <div className="relation-create-grid">
-            <label>
-              类型
-              <select
-                className="input"
-                value={targetType}
-                onChange={(event) => {
-                  const nextType = event.target.value as "世界实体" | "叙事线索" | "资料";
-                  setTargetType(nextType);
-                  setTargetId("");
-                  setRelationType(defaultRelationType(nextType, "", entities));
-                }}
-              >
-                <option value="世界实体">世界</option>
-                <option value="叙事线索">线索</option>
-                <option value="资料">资料</option>
-              </select>
-            </label>
-            <label>
-              对象
-              <select className="input" value={targetId} onChange={(event) => setTargetId(event.target.value)}>
-                <option value="">请选择</option>
-                {targetOptions.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.title} / {option.meta}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              关系说明
-              <input className="input" value={relationType} onChange={(event) => setRelationType(event.target.value)} placeholder="例如：出场人物、出现地点、涉及线索" />
-            </label>
-            <button className="button button-primary" disabled={!selectedScene || !targetId} onClick={addRelation}>
-              <Link2 size={16} />
-              添加关联
-            </button>
-          </div>
-        </section>
-        <section className="panel-block">
-          <div className="panel-title">当前 Scene 已有关联</div>
-          <div className="space-y-2">
-            {sceneRelations.length ? (
-              sceneRelations.map((relation) => (
-                <div key={relation.id} className="list-row static-row">
-                  <span>{selectedScene?.title} → {targetTitle(relation)}</span>
-                  <span className="muted">{relation.relationType}</span>
-                  <button className="button icon-button button-danger" onClick={() => onDelete(relation.id)} title="删除关系">
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              ))
-            ) : (
-              <p className="text-sm muted">当前 Scene 还没有关系。请先明确选择对象，再添加关联。</p>
-            )}
-          </div>
-        </section>
+      <div className="chapter-relation-list">
+        {chapters.length ? (
+          chapters.map(({ volume, chapter, baseScene, sceneFragments }) => (
+            <details
+              key={chapter.id}
+              className="chapter-relation-details"
+              open={chapter.id === selectedChapter?.id}
+            >
+              <summary>
+	                <span>
+	                  <strong>{chapter.title}</strong>
+	                  <small>{volume.title} / {chapter.wordCount} 字</small>
+	                </span>
+	                <span className="pill">
+	                  {chapter.scenes.length
+	                    ? `${chapter.scenes.reduce((sum, scene) => sum + relations.filter((relation) => relation.sourceId === scene.id).length, 0)} 条关系`
+	                    : "无章节结构"}
+	                </span>
+	              </summary>
+	              <div className="chapter-relation-body">
+		                <details className="relation-layer">
+		                  <summary className="relation-layer-title">
+		                    <span>章节结构关联</span>
+		                    <small>{baseScene ? `${relations.filter((relation) => relation.sourceId === baseScene.id).length} 条` : "无章节结构"}</small>
+		                  </summary>
+		                  <SceneRelationsPanel
+		                    selectedChapter={chapter}
+		                    selectedScene={baseScene}
+	                    relations={relations}
+	                    entities={entities}
+	                    threads={threads}
+	                    libraryItems={libraryItems}
+		                    onCreateRelation={onCreateRelation}
+		                    onDeleteRelation={onDelete}
+		                  />
+		                </details>
+
+		                <details className="relation-layer">
+		                  <summary className="relation-layer-title">
+		                    <span>场景片段关联</span>
+		                    <small>{sceneFragments.length ? `${sceneFragments.length} 个片段` : "暂无片段"}</small>
+		                  </summary>
+		                  {sceneFragments.length ? (
+		                    <div className="relation-fragment-list">
+	                      {sceneFragments.map((scene) => (
+	                        <details key={scene.id} className="relation-fragment-details">
+	                          <summary>
+	                            <span>
+	                              <strong>{scene.title}</strong>
+	                              <small>{scene.wordCount} 字 / {relations.filter((relation) => relation.sourceId === scene.id).length} 条关系</small>
+	                            </span>
+	                          </summary>
+	                          <SceneRelationsPanel
+	                            selectedChapter={chapter}
+	                            selectedScene={scene}
+	                            relations={relations}
+	                            entities={entities}
+	                            threads={threads}
+	                            libraryItems={libraryItems}
+	                            onCreateRelation={onCreateRelation}
+	                            onDeleteRelation={onDelete}
+	                          />
+	                        </details>
+	                      ))}
+	                    </div>
+		                  ) : (
+		                    <div className="empty-state">本章还没有场景片段。回到正文页选中文字，右键选择“划分场景”。</div>
+		                  )}
+		                </details>
+	              </div>
+	            </details>
+	          ))
+        ) : (
+          <EmptyPanel text="还没有章节。新建小说后，这里会按章节显示关系。" />
+        )}
       </div>
     </div>
   );
@@ -3174,7 +3969,7 @@ function ImportView({
           </div>
         </label>
         <p className="text-sm leading-7 muted">
-          工作台只复制 Markdown 内容，不会移动或删除原文件。自动分流规则：人物、地点、势力、规则进入世界；伏笔和悬念进入线索；大纲、资料和 Scene 参考留在资料库。
+          工作台只复制 Markdown 内容，不会移动或删除原文件。自动分流规则：人物、地点、势力、规则进入世界；伏笔和悬念进入线索；大纲、资料和章节参考留在资料库。
         </p>
         <label className="toggle-row">
           <input
@@ -3224,7 +4019,7 @@ function ImportView({
                     value={typeOverrides[file.path] || file.typeGuess}
                     onChange={(event) => setTypeOverrides((current) => ({ ...current, [file.path]: event.target.value }))}
                   >
-                    {["大纲", "人物", "地点", "势力", "规则", "伏笔", "Scene 参考", "资料"].map((type) => (
+                    {["大纲", "人物", "地点", "势力", "规则", "伏笔", "章节参考", "资料"].map((type) => (
                       <option key={type}>{type}</option>
                     ))}
                   </select>
@@ -3772,14 +4567,14 @@ function AiContextView({
 
 function ContextSummary({
   activeProjectName,
-  selectedScene,
+  selectedChapter,
   message,
   entityCount,
   threadCount,
   libraryCount,
 }: {
   activeProjectName: string;
-  selectedScene: SceneNode | null;
+  selectedChapter: ChapterNode | null;
   message: string;
   entityCount: number;
   threadCount: number;
@@ -3792,8 +4587,8 @@ function ContextSummary({
         当前状态
       </div>
       <div className="muted">作品：{activeProjectName}</div>
-      <div className="muted">Scene：{selectedScene?.title ?? "未选择"}</div>
-      <div className="muted">字数：{selectedScene?.wordCount ?? 0}</div>
+      <div className="muted">章节：{selectedChapter?.title ?? "未选择"}</div>
+      <div className="muted">字数：{selectedChapter?.wordCount ?? 0}</div>
       <div className="muted">世界 / 线索 / 资料：{entityCount} / {threadCount} / {libraryCount}</div>
       {message ? <div className="mt-2 text-[var(--accent)]">{message}</div> : null}
     </div>
@@ -4120,7 +4915,7 @@ function buildStoryDraftPrompt(focus: string, messages: BuildMessage[]) {
     "5. 主线冲突：外部阻力、阶段目标、失败代价。",
     "6. 世界规则或现实约束：必须具体，能约束剧情。",
     "7. 篇章骨架：按卷/篇章或三幕式列出推进。",
-    "8. 开篇 Scene：场景、钩子、冲突、结尾变化。",
+    "8. 开篇场景：地点、钩子、冲突、结尾变化。",
     "9. 线索与伏笔：建议埋设点和回收方向。",
     "10. 模块沉淀建议：哪些内容适合进入世界、线索、时间轴、资料库。",
     "11. 下一步最应该确认的 5 个问题。",
@@ -4130,7 +4925,7 @@ function buildStoryDraftPrompt(focus: string, messages: BuildMessage[]) {
 
 function buildChapterOutlinePrompt(focus: string, messages: BuildMessage[], outline: string) {
   return [
-    "请作为中文小说章节细纲助手，根据已有新书构建内容，生成可执行的卷、章、Scene 规划。",
+    "请作为中文小说章节细纲助手，根据已有新书构建内容，生成可执行的卷、章、场景规划。",
     `当前侧重：${focus}`,
     outline.trim() ? "故事总纲：" : "访谈记录：",
     outline.trim() || formatBuildMessages(messages),
@@ -4138,7 +4933,7 @@ function buildChapterOutlinePrompt(focus: string, messages: BuildMessage[], outl
     "1. 建议篇幅与结构：短篇/中篇/长篇，卷数或章节数建议。",
     "2. 卷/阶段规划：每卷目标、核心冲突、阶段结尾变化。",
     "3. 章节细纲：按章节列出章节目标、关键事件、人物变化、冲突推进、结尾钩子。",
-    "4. Scene 建议：每章可拆成哪些 Scene，每个 Scene 的场景、冲突、信息增量和情绪变化。",
+    "4. 场景建议：每章可拆成哪些场景，每个场景的地点、冲突、信息增量和情绪变化。",
     "5. 伏笔与回收：标出建议埋设位置、推进位置、回收位置。",
     "6. 写作风险：节奏拖慢、信息过密、人物动机不足等需要注意的点。",
     "只基于已提供内容生成；信息不足时写“待确认”，不要硬编庞大设定。",
