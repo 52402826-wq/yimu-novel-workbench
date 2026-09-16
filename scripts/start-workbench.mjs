@@ -2,10 +2,11 @@ import { existsSync, mkdirSync, writeFileSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
+import { homedir } from "node:os";
 import net from "node:net";
 
 const projectRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-const dataDir = process.env.NOVEL_WORKBENCH_DATA_DIR ?? "/Users/ray/Documents/NovelWorkbenchData";
+const dataDir = process.env.NOVEL_WORKBENCH_DATA_DIR ?? join(homedir(), "Documents", "NovelWorkbenchData");
 const port = Number(process.env.PORT ?? 3007);
 const localUrl = `http://localhost:${port}`;
 const databasePath = join(dataDir, "novel-workbench.db");

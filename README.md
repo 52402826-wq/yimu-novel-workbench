@@ -34,13 +34,13 @@
 默认数据目录：
 
 ```text
-/Users/ray/Documents/NovelWorkbenchData
+~/Documents/NovelWorkbenchData
 ```
 
 默认数据库：
 
 ```text
-/Users/ray/Documents/NovelWorkbenchData/novel-workbench.db
+~/Documents/NovelWorkbenchData/novel-workbench.db
 ```
 
 这些内容不会被提交到仓库。`.gitignore` 已经忽略：

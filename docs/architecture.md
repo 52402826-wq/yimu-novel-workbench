@@ -6,9 +6,9 @@
 
 默认路径：
 
-- 程序目录：`/Users/ray/Projects/NovelWorkbench`
-- 数据目录：`/Users/ray/Documents/NovelWorkbenchData`
-- SQLite 数据库：`/Users/ray/Documents/NovelWorkbenchData/novel-workbench.db`
+- 程序目录：项目克隆目录
+- 数据目录：`~/Documents/NovelWorkbenchData`
+- SQLite 数据库：`~/Documents/NovelWorkbenchData/novel-workbench.db`
 
 公开仓库只保存工作台架构和源码，不保存用户的小说数据、数据库、导入资料或 API Key。
 

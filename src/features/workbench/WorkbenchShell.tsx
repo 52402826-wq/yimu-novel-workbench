@@ -3959,8 +3959,8 @@ function ImportView({
               onChange={(event) => setSourcePath(event.target.value)}
               placeholder={
                 sourceMode === "file"
-                  ? "/Users/ray/Documents/Obsidian/Ray/整理/《转角遇见\"鬼\"》设定集.md"
-                  : "/Users/ray/Documents/Obsidian/Ray/整理"
+                  ? "~/Documents/Obsidian/小说设定集.md"
+                  : "~/Documents/Obsidian"
               }
             />
             <button className="button button-primary" onClick={scanDocuments} disabled={isScanning}>

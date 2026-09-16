@@ -1,11 +1,12 @@
 import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import { createClient, type Client } from "@libsql/client";
 import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
 import * as schema from "./schema";
 
 const dataDir =
-  process.env.NOVEL_WORKBENCH_DATA_DIR ?? "/Users/ray/Documents/NovelWorkbenchData";
+  process.env.NOVEL_WORKBENCH_DATA_DIR ?? join(homedir(), "Documents", "NovelWorkbenchData");
 
 export const databasePath = join(dataDir, "novel-workbench.db");
 
