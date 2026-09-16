@@ -10,7 +10,7 @@ const port = Number(process.env.PORT ?? 3007);
 const localUrl = `http://localhost:${port}`;
 const databasePath = join(dataDir, "novel-workbench.db");
 const nextCliPath = join(projectRoot, "node_modules", "next", "dist", "bin", "next");
-const productName = "乙木";
+const productName = "墨枝";
 
 async function main() {
   printHeader();

@@ -1,66 +1,139 @@
-# 乙木
+# 墨枝
 
-本地小说创作工作台。1.0 采用“合并版小说工作台”架构：不是堆很多孤立页面，而是用同一份小说数据生成正文、故事、世界、线索、资料、关系和 AI 上下文。
+墨枝是一款本地运行的长篇小说创作工作台。它以正文写作为核心，把章节、世界设定、资料库、时间轴、线索、关系和 AI 创作对话放在同一个工作流里，适合用来搭建、整理和持续推进长篇小说项目。
 
-## 路径
+项目默认把程序代码和创作数据分离：代码可以公开托管，小说正文、设定资料、数据库和 API Key 保留在本机。
 
-- 程序路径：`/Users/ray/Projects/NovelWorkbench`
-- 创作数据路径：`/Users/ray/Documents/NovelWorkbenchData`
-- SQLite 数据库：`/Users/ray/Documents/NovelWorkbenchData/novel-workbench.db`
+## 功能概览
 
-程序代码和创作数据分离。上传 GitHub 时只上传工作台代码，不上传小说资料、数据库或模型 API Key。
+- 小说项目管理：新建小说、卷、章节
+- 正文写作：章节级编辑、自动保存、手动保存、一键排版、两端对齐
+- 写作视图：章节树、全文搜索、可拖拽左右栏、可保存的字体和背景偏好
+- 标注系统：选中文本后标记伏笔、入轴、场景片段，并用不同颜色高亮
+- AI 辅助：选中文本后生成分析、润色、改写、续写建议卡片
+- 创作对话：支持选择引用章节，和模型讨论人物、节奏、大纲、设定
+- 世界设定：人物、地点、势力、物品、规则、事件、术语
+- 资料库：导入本地 Markdown / 文本文档，整理研究资料和设定材料
+- 时间轴：记录情节事件和故事时间
+- 线索：维护伏笔、悬念、任务、秘密、感情线、冲突线
+- 关系：把章节、场景片段、人物、资料、线索关联起来
+- AI Provider：本地配置 OpenAI、DeepSeek、Kimi、Claude、Gemini 或 OpenAI Compatible 接口
 
-## 1.0 能力
+## 技术栈
 
-- 新建小说项目
-- Story Tree：卷 / 章 / Scene / Beat
-- 正文编辑器
-- 自动保存
-- Scene 元数据：POV、目标、冲突、结果、摘要、故事时间、状态
-- World Entities：人物、地点、势力、物品、规则、事件、术语
-- Narrative Threads：伏笔、悬念、任务、秘密、感情线、冲突线
-- Library：灵感、研究资料、摘录、参考、笔记
-- Relations：Scene 与世界条目、线索、资料的统一关系
-- Dashboard：字数、章节、Scene、世界条目、未回收线索
-- 全局搜索：正文、世界、线索、资料
-- AI Context：聚合当前上下文，支持本地配置模型 Provider
+- Next.js
+- React
+- TypeScript
+- Tailwind CSS
+- TipTap
+- SQLite
+- Drizzle ORM
 
-## 启动
+## 数据与隐私
 
-推荐使用稳定启动入口：
+默认数据目录：
+
+```text
+/Users/ray/Documents/NovelWorkbenchData
+```
+
+默认数据库：
+
+```text
+/Users/ray/Documents/NovelWorkbenchData/novel-workbench.db
+```
+
+这些内容不会被提交到仓库。`.gitignore` 已经忽略：
+
+- `.env`
+- `.env.*`
+- `*.db`
+- `*.sqlite`
+- `*.sqlite3`
+- `data/`
+- `backups/`
+- `projects/`
+- `NovelWorkbenchData/`
+
+AI API Key 保存在本机 SQLite 数据库里。公开仓库前请确认不要提交真实小说资料、数据库文件或 API Key。
+
+## 快速启动
+
+安装依赖：
+
+```bash
+pnpm install
+```
+
+启动工作台：
 
 ```bash
 pnpm workbench:start
 ```
 
-或者在 Finder 里双击：
-
-```text
-/Users/ray/Projects/NovelWorkbench/start-workbench.command
-```
-
-启动脚本会先检查 `/Users/ray/Documents/NovelWorkbenchData` 是否可写。如果数据目录被 macOS 权限拦截，脚本会停止启动并给出提示，避免工作台打开后新建、删除、保存突然失败。
-
-固定访问地址：
+默认访问地址：
 
 ```text
 http://localhost:3007
 ```
 
-如果页面打不开、显示断链，重新运行 `start-workbench.command` 即可。
+也可以在 macOS Finder 里双击：
 
-开发模式：
-
-```bash
-pnpm install
-pnpm dev
+```text
+start-workbench.command
 ```
 
-打开本地地址后即可开始写作。
+启动脚本会检查数据目录是否可写。如果页面打不开，重新运行启动脚本即可。
 
-生产模式：
+更多说明见 [快速开始](docs/quick-start.md)。
+
+## 常用命令
 
 ```bash
+pnpm dev
 pnpm build
 pnpm start
+pnpm db:push
 ```
+
+## 自定义配置
+
+可以复制 `.env.example` 为 `.env.local`，按需修改：
+
+```bash
+cp .env.example .env.local
+```
+
+常用配置：
+
+```env
+NOVEL_WORKBENCH_DATA_DIR=/Users/yourname/Documents/NovelWorkbenchData
+PORT=3007
+```
+
+不要把 `.env.local` 提交到仓库。
+
+## 项目结构
+
+```text
+src/
+  app/                 Next.js 页面和本地 API
+  db/                  SQLite + Drizzle 数据层
+  features/
+    ai/                AI Router 与 Provider 适配
+    import/            本地文档导入
+    workbench/         工作台主界面
+  lib/                 通用工具
+docs/                  项目文档
+scripts/               启动脚本
+```
+
+## 当前版本
+
+当前主分支版本：`v1.1`
+
+这一版重点完善写作主界面、AI 创作对话、选中文本建议卡片、场景片段标注、可拖拽布局和公开仓库说明。
+
+## 许可证
+
+MIT License。详见 [LICENSE](LICENSE)。
